@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% import "_ui.html" as ui with context %}
+{% block title %}Calls – {{ brand.brand_name }}{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div><h1>Calls</h1><p class="lede">Every call across your clients, newest first.</p></div>
+  <form method="get" class="cluster" aria-label="Filter calls">
+    <div class="field"><label class="sr-only" for="f-outcome">Outcome</label>
+      <select id="f-outcome" name="outcome" class="input" onchange="this.form.requestSubmit()">
+        <option value="">All outcomes</option>{% for o in ['booked','transferred','message','lead','info','missed','spam'] %}<option value="{{ o }}" {{ 'selected' if outcome == o }}>{{ o|label }}</option>{% endfor %}</select></div>
+  </form>
+</div>
+<section class="surface">{{ ui.calls_table(calls, show_client=True, names=names) }}</section>
+{% endblock %}

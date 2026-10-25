@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% import "_ui.html" as ui with context %}
+{% block title %}Billing – {{ brand.brand_name }}{% endblock %}
+{% block content %}
+{% set est = rows|sum(attribute='estimate') %}{% set cost = rows|sum(attribute='usage.cost') %}
+<div class="page-head"><div><h1>Billing</h1>
+  <p class="lede">What each client will be billed this month against what their calls cost you. Costs are the provider's real figure, or {{ settings.est_cost_per_minute_cents|round(1) }}¢ a minute until it's reported.</p></div></div>
+{% if not stripe_ready %}<div class="callout" data-tone="bad">{{ ui.icon('alert') }}<span>Stripe isn't connected, so these are estimates only. Add STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET.</span></div>{% endif %}
+<div class="stats">
+  <div class="stat"><div class="label">Collected, last 30 days</div><div class="value">{{ collected|money(0) }}</div><div class="note">From paid Stripe invoices</div></div>
+  <div class="stat"><div class="label">Billable this month</div><div class="value">{{ est|money(0) }}</div></div>
+  <div class="stat"><div class="label">Provider cost</div><div class="value">{{ cost|money(0) }}</div></div>
+  <div class="stat"><div class="label">Clients losing money</div><div class="value" {% if rows|selectattr('underwater')|list %}data-tone="bad"{% endif %}>{{ rows|selectattr('underwater')|list|length }}</div></div>
+</div>
+<section class="surface">
+{% if rows %}<div class="table-wrap"><table class="table stackable">
+<thead><tr><th>Client</th><th>Plan</th><th class="num">Calls</th><th class="num">Minutes</th><th class="num">Billable</th><th class="num">Cost</th><th class="num">Margin</th><th>Subscription</th></tr></thead>
+<tbody>{% for r in rows %}<tr data-href="/clients/{{ r.client.id }}?tab=billing">
+  <td class="primary-cell" data-label="Client"><a href="/clients/{{ r.client.id }}?tab=billing">{{ r.client.name }}</a><span class="sub">{{ r.client.status|label }}</span></td>
+  <td data-label="Plan" class="small">{{ r.client.monthly_price_cents|money(0) }} a month{% if r.client.monthly_minute_cap %}, cap {{ r.client.monthly_minute_cap }} min{% endif %}</td>
+  <td data-label="Calls" class="num">{{ r.usage.calls }}</td><td data-label="Minutes" class="num">{{ r.usage.minutes }}</td>
+  <td data-label="Billable" class="num">{{ r.estimate|money(0) }}</td><td data-label="Cost" class="num">{{ r.usage.cost|money(0) }}</td>
+  <td data-label="Margin" class="num end-cell">{% if r.underwater %}{{ ui.badge('bad', r.margin|money(0)) }}{% else %}<span class="strong">{{ r.margin|money(0) }}</span>{% endif %}</td>
+  <td data-label="Subscription">{% if r.client.stripe_status %}{{ ui.badge(r.client.stripe_status) }}{% else %}<span class="muted">None</span>{% endif %}</td>
+</tr>{% endfor %}</tbody></table></div>
+{% else %}{{ ui.empty('billing', 'Nothing to bill yet', 'Set pricing on a client and send them a checkout link.', '/clients', 'Open clients') }}{% endif %}
+</section>
+{% endblock %}

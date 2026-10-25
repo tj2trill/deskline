@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% import "_ui.html" as ui with context %}
+{% block title %}Settings – {{ brand.brand_name }}{% endblock %}
+{% block content %}
+<div class="page-head"><div><h1>Settings</h1><p class="lede">Your brand, defaults for new clients, connected services and team.</p></div></div>
+<div class="layout main-side">
+  <div class="stack">
+    <form class="surface" method="post" action="/settings" data-track>
+      <div class="surface-head"><div><h2>Brand</h2><div class="sub">Clients and their customers only ever see this brand.</div></div></div>
+      <div class="surface-body">
+        <div class="form-grid">
+          {{ ui.field('brand_name', 'Brand name', agency.brand_name, required=True) }}
+          <div class="field"><label for="f-primary_color">Brand colour</label><input id="f-primary_color" name="primary_color" type="color" value="{{ agency.primary_color }}"></div>
+          {{ ui.field('logo_url', 'Logo URL', agency.logo_url or '', cls='full') }}
+          {{ ui.field('website', 'Website', agency.website or '') }}
+          {{ ui.field('timezone', 'Timezone for your dashboard', agency.timezone) }}
+          {{ ui.field('support_email', 'Support email', agency.support_email or '', type='email', hint='Used as reply-to.') }}
+          {{ ui.field('support_phone', 'Support phone', agency.support_phone or '', type='tel') }}
+          {{ ui.field('sender_name', 'Sender name for outreach', agency.sender_name or '') }}
+          {{ ui.field('mailing_address', 'Mailing address', agency.mailing_address or '', hint='Required by anti-spam law in every cold email.', cls='full') }}
+        </div>
+        <h3 class="section-title">Defaults for new clients</h3>
+        <div class="form-grid">
+          {{ ui.field('default_monthly_price', 'Monthly price ($)', agency.default_monthly_price_cents|dollars, type='number', attrs='step="0.01"') }}
+          {{ ui.field('default_included_minutes', 'Included minutes', agency.default_included_minutes, type='number') }}
+          {{ ui.field('default_overage', 'Overage ($ per minute)', agency.default_overage_cents|dollars, type='number', attrs='step="0.01"') }}
+          {{ ui.field('default_setup_fee', 'Setup fee ($)', agency.default_setup_fee_cents|dollars, type='number', attrs='step="0.01"') }}
+          {{ ui.field('default_trial_days', 'Free trial (days)', agency.default_trial_days, type='number') }}
+        </div>
+        <h3 class="section-title">Alerts and limits</h3>
+        <div class="form-grid">
+          {{ ui.field('alert_email', 'Send alerts to', agency.alert_email or '', type='email', hint='Blank means the admin account.') }}
+          {{ ui.field('margin_alert_pct', 'Warn when cost reaches (% of billable)', agency.margin_alert_pct, type='number') }}
+          {{ ui.field('daily_email_cap', 'Cold emails per day', agency.daily_email_cap, type='number', hint='Protects your sending domain.') }}
+        </div>
+      </div>
+      <div class="surface-foot">{{ ui.save() }}</div>
+    </form>
+    <section class="surface"><div class="surface-head"><h2>Team</h2></div>
+      <ul class="rows">{% for u in team %}<li><span class="avatar">{{ (u.name or u.email)|initials }}</span><span class="grow"><span class="title">{{ u.email }}</span><span class="meta">{{ u.role|capitalize }}</span></span>
+        {% if u.id != user.id and user.role == 'admin' %}<form class="end" method="post" action="/settings/team/{{ u.id }}/delete" data-confirm="They lose access immediately." data-confirm-title="Remove {{ u.email }}?" data-confirm-ok="Remove"><button class="btn ghost sm">Remove</button></form>{% endif %}</li>{% endfor %}</ul>
+      {% if user.role == 'admin' %}<form method="post" action="/settings/team" class="surface-body inline-form divided">
+        {{ ui.field('email', 'Email', type='email', required=True, id='team-email') }}{{ ui.choice('role', 'Role', [('staff','Staff'),('admin','Admin')], 'staff') }}<button class="btn" type="submit">Invite</button></form>{% endif %}
+    </section>
+    <form class="surface" method="post" action="/account/password">
+      <div class="surface-head"><h2>Your password</h2></div>
+      <div class="surface-body form-grid">{{ ui.field('current', 'Current password', type='password', required=True) }}{{ ui.field('new', 'New password', type='password', required=True, hint='At least 10 characters.') }}</div>
+      <div class="surface-foot"><button class="btn" type="submit">Change password</button></div>
+    </form>
+  </div>
+  <div class="stack">
+    <section class="surface"><div class="surface-head"><h2>Connected services</h2></div>
+      <ul class="rows">{% for s in status %}<li>{{ ui.lamp('active' if s.ok else 'missed') }}<span class="grow"><span class="title">{{ s.name }}</span><span class="text">{{ s.hint }}</span></span></li>{% endfor %}</ul>
+      <div class="surface-body stack-s divided">
+        <span class="label">Stripe webhook</span>{{ ui.copy_field(stripe_webhook) }}
+        <span class="hint small muted">Events: checkout.session.completed, customer.subscription.created, customer.subscription.updated, customer.subscription.deleted, invoice.paid, invoice.payment_failed</span>
+        <span class="label">Vapi webhook</span>{{ ui.copy_field(vapi_webhook) }}<span class="hint small muted">Set on every assistant and number automatically.</span>
+        <span class="label">Inbound reply webhook</span>{{ ui.copy_field(inbound_webhook) }}<span class="hint small muted">Point your inbound mail provider (Postmark, SendGrid Inbound Parse, Mailgun) here and set INBOUND_REPLY_TO to that mailbox. Replies are then sorted automatically and the Strategist learns from them. Keep this URL private.</span>
+      </div>
+    </section>
+    <section class="surface"><div class="surface-head"><h2>Test delivery</h2></div>
+      <form method="post" action="/settings/test" class="surface-body inline-form">
+        {{ ui.choice('channel', 'Send', [('email','Email'),('sms','Text')], 'email') }}{{ ui.field('to', 'To', required=True, placeholder='you@… or +1…', id='test-to') }}<button class="btn" type="submit">Send test</button></form>
+      {% if outbox %}<div class="surface-head divided"><div><h3>Outbox</h3><div class="sub">Messages logged instead of sent, because no provider is connected.</div></div></div>
+      <ul class="rows">{% for m in outbox %}<li>{{ ui.lamp('neutral') }}<span class="grow"><span class="title">{{ m.subject or 'Text message' }}</span><span class="text clamp-2">{{ m.body }}</span><span class="meta">{{ m.to }}</span></span></li>{% endfor %}</ul>{% endif %}
+    </section>
+    <section class="surface"><div class="surface-head"><h2>Event log</h2></div>
+      {% if events %}<ul class="rows">{% for e in events %}<li>{{ ui.lamp('error' if e.level in ['warn','error'] else 'neutral') }}<span class="grow small">{{ e.message }}<span class="meta">{{ e.kind|label }}<span>{{ e.created_at|localtime }}</span></span></span></li>{% endfor %}</ul>
+      {% else %}{{ ui.empty('check', 'All quiet', 'Webhook errors and provider failures show up here.') }}{% endif %}
+    </section>
+  </div>
+</div>
+{% endblock %}

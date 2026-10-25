@@ -1,0 +1,39 @@
+{% import "_ui.html" as ui with context %}<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{{ prop.title }}</title>
+<link rel="preload" href="/static/fonts/ibm-plex-sans-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/static/app.css?v=2">
+<style>:root{--brand:{{ agency.primary_color if agency else '#2b50c8' }}}
+.doc h1{font-size:clamp(28px,4vw,40px);line-height:1.1;margin:var(--s3) 0 var(--s4);max-width:22ch}
+.doc .intro{font-size:var(--fs-l);color:var(--ink-2);max-width:60ch;border-left:3px solid var(--brand);padding-left:var(--s4);margin-bottom:var(--s6)}
+.doc section{margin-top:var(--s6)}.doc h2{margin-bottom:var(--s3)}
+.math{font-size:var(--fs-s);color:var(--muted);margin-top:var(--s2)}
+.features{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:var(--s2) var(--s5);padding:0;list-style:none}
+.features li{display:flex;gap:var(--s2);align-items:flex-start}.features .icon{color:var(--brand);margin-top:3px}
+.steps{padding-left:20px}.steps li{margin:6px 0}
+@media print{.doc{padding:0}.stats{break-inside:avoid}}</style></head>
+<body>{% include "_icons.html" %}
+<div class="doc">
+{% set c = prop.content %}{% set r = c.roi %}
+{% if internal %}<div class="surface no-print" style="margin-bottom:var(--s6)"><div class="surface-body stack-s">
+  <div class="split"><a class="back" href="javascript:history.back()">{{ ui.icon('back') }}Back</a><button class="btn" type="button" onclick="window.print()">{{ ui.icon('download') }}Save as PDF</button></div>
+  <span class="label">Share link</span>{{ ui.copy_field(share) }}
+  <span class="small muted">{% if prop.viewed_at %}Opened {{ prop.viewed_at|localtime }}{% else %}Not opened yet. You'll see when they do.{% endif %}</span></div></div>{% endif %}
+<div class="cluster muted small">{% if agency and agency.logo_url %}<img src="{{ agency.logo_url }}" alt="" style="height:22px">{% endif %}<span>{{ agency.brand_name if agency else '' }}</span><span>{{ prop.created_at|localtime(None, '%B %d, %Y') }}</span></div>
+<h1>{{ c.headline }}</h1>
+<p class="intro">{{ c.intro }}</p>
+
+<div class="stats">
+  <div class="stat"><div class="label">Missed calls a week</div><div class="value">{{ r.missed_calls_per_week|round|int }}</div><div class="note">Your estimate</div></div>
+  <div class="stat"><div class="label">Revenue you could recover</div><div class="value">${{ '{:,.0f}'.format(r.recovered_per_month) }}</div><div class="note">per month</div></div>
+  <div class="stat"><div class="label">Return on the monthly fee</div><div class="value">{{ (r.roi_multiple ~ '×') if r.roi_multiple else '—' }}</div></div>
+</div>
+<p class="math">{{ r.missed_calls_per_week|round|int }} calls a week × 4.33 weeks × {{ (r.close_rate * 100)|round|int }}% booked × ${{ '{:,.0f}'.format(r.avg_job_value) }} average job. An estimate from your numbers, not a guarantee.</p>
+
+<section><h2>The problem</h2><p class="prose">{{ c.problem }}</p></section>
+<section><h2>What changes</h2><p class="prose">{{ c.solution }}</p>
+  <ul class="features">{% for f in c.features %}<li>{{ ui.icon('check') }}<span>{{ f }}</span></li>{% endfor %}</ul></section>
+<section><h2>Investment</h2><p class="prose">{{ c.pricing.text }}{% if c.pricing.setup %}, plus a one-time setup of ${{ '{:,.2f}'.format(c.pricing.setup) }}{% endif %}.</p></section>
+<section><h2>Next steps</h2><ol class="steps">{% for s in c.next_steps %}<li>{{ s }}</li>{% endfor %}</ol>
+{% if agency and (agency.support_email or agency.support_phone) %}<p class="muted">Questions? {{ agency.support_email or '' }} {{ agency.support_phone|phone if agency.support_phone else '' }}</p>{% endif %}</section>
+</div></body></html>

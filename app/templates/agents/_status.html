@@ -1,0 +1,8 @@
+{% import "_ui.html" as ui with context %}
+<span class="cluster" {% if cfg.running_since %}data-poll="/agents/{{ cfg.key }}/status" data-poll-every="2000"{% else %}data-poll-done{% endif %}>
+{% if cfg.running_since %}{{ ui.badge('building', 'Running now') }}
+{% elif cfg.mode == 'off' %}{{ ui.badge('neutral', 'Off') }}
+{% elif cfg.last_status == 'error' %}{{ ui.badge('error', 'Last run failed') }}
+{% elif cfg.last_status %}{{ ui.badge('ok', 'Last run ' ~ cfg.last_run_at|localtime) }}
+{% else %}{{ ui.badge('neutral', 'Not run yet') }}{% endif %}
+</span>

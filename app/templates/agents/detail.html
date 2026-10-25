@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% import "_ui.html" as ui with context %}
+{% block title %}{{ agent.title }} – {{ brand.brand_name }}{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div><a class="back" href="/agents">{{ ui.icon('back') }}Agents</a>
+    <h1>{{ agent.title }}</h1>
+    <p class="lede">{{ agent.role }}</p>
+    <div class="meta"><span>Runs {{ every(cfg.interval_minutes) }}</span>{% include "agents/_status.html" %}{% if cfg.next_run_at and cfg.mode != 'off' %}<span>Next run {{ cfg.next_run_at|localtime }}</span>{% endif %}</div>
+  </div>
+  <div class="cluster">{% set key = agent.key %}{% set mode = cfg.mode %}{% set back = '/agents/' ~ agent.key %}{% include "agents/_mode.html" %}
+    <form method="post" action="/agents/{{ agent.key }}/run"><button class="btn primary" type="submit" {{ 'disabled' if cfg.running_since }}>{{ ui.icon('refresh') }}Run now</button></form></div>
+</div>
+<div class="layout main-side">
+  <div class="stack">
+    <section class="surface"><div class="surface-head"><h2>Recent runs</h2></div>
+      {% if runs %}<ul class="rows">{% for r in runs %}<li class="block"><details {{ 'open' if loop.first }}>
+        <summary class="split"><span class="cluster grow">{{ ui.lamp('error' if r.status == 'error' else ('building' if r.status == 'running' else 'ok')) }}
+          <span class="grow"><span class="title">{{ r.summary or 'Running…' }}</span><span class="meta"><span>{{ r.started_at|localtime }}</span><span>{{ 'Started by you' if r.trigger == 'manual' else 'Scheduled' }}</span></span></span></span></summary>
+        {% if r.log %}<div class="log">{% for e in r.log %}<span class="t">{{ e.t[11:16] }}</span>  {{ e.msg }}
+{% endfor %}</div>{% else %}<div class="small muted mt-s">No steps logged.</div>{% endif %}</details></li>{% endfor %}</ul>
+      {% else %}{{ ui.empty('refresh', 'Not run yet', 'Press Run now, or wait for its schedule.') }}{% endif %}
+    </section>
+    {% if acts %}<section class="surface"><div class="surface-head"><h2>Its actions</h2></div>
+      <ul class="rows">{% for a in acts %}{% set back = '/agents/' ~ agent.key %}{% set registry = {agent.key: agent} %}{% include "agents/_action.html" %}{% endfor %}</ul></section>{% endif %}
+  </div>
+  <div class="stack">
+    <form class="surface" method="post" action="/agents/{{ agent.key }}/settings" data-track>
+      <div class="surface-head"><h2>Settings</h2></div>
+      <div class="surface-body form-grid">
+        {% for k in agent.knobs %}{% set v = values[k.name] %}
+          {% if k.type == 'bool' %}<div class="field full">{{ ui.switch(k.name, k.label, k.hint, v) }}</div>
+          {% elif k.type == 'lines' %}{{ ui.area(k.name, k.label, (v or [])|join('\n'), hint=k.hint, cls='full') }}
+          {% elif k.type == 'int' %}{{ ui.field(k.name, k.label, v, type='number', hint=k.hint) }}
+          {% elif k.type == 'time' %}{{ ui.field(k.name, k.label, v, type='time', hint=k.hint) }}
+          {% else %}{{ ui.field(k.name, k.label, v, hint=k.hint) }}{% endif %}
+        {% endfor %}
+        {{ ui.field('interval_minutes', 'Run every (minutes)', cfg.interval_minutes, type='number', hint='At least 5.') }}
+      </div>
+      <div class="surface-foot">{{ ui.save() }}</div>
+    </form>
+    <section class="surface"><div class="surface-head"><h2>What it does</h2></div>
+      <div class="surface-body stack-s small">
+        <p class="m0 ink-2">{{ agent.role }}</p>
+        {% if agent.acts %}<p class="m0 ink-2">Actions it can take: {% for k in agent.acts %}{{ label_of(k)|lower }}{{ ', ' if not loop.last }}{% endfor %}. On Ask me first these wait for you; on Autopilot they happen right away within your limits.</p>
+        {% else %}<p class="m0 ink-2">It only does internal work and alerts, so modes just turn it on or off.</p>{% endif %}
+      </div>
+    </section>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,12 @@
+{% extends "_standalone.html" %}
+{% block title %}Unsubscribe – {{ brand.brand_name }}{% endblock %}
+{% block body %}
+{% if done %}
+  <h1 class="title-s">You're unsubscribed</h1>
+  <p class="ink-2 m0">{{ email }} won't get any more emails from {{ brand.brand_name }}.</p>
+{% else %}
+  <h1 class="title-s">Unsubscribe</h1>
+  <p class="ink-2 m0">Stop all emails from {{ brand.brand_name }} to <b>{{ email }}</b>?</p>
+  <form method="post" action="/u/{{ token }}"><button class="btn primary block" type="submit">Unsubscribe</button></form>
+{% endif %}
+{% endblock %}

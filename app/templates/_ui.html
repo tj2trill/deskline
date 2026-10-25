@@ -1,0 +1,78 @@
+{# Shared UI atoms. Import with: {% import "_ui.html" as ui %} #}
+
+{% macro icon(name, cls="") -%}
+<svg class="icon {{ cls }}" aria-hidden="true"><use href="#i-{{ name }}"/></svg>
+{%- endmacro %}
+
+{% macro badge(value, text=None, plain=False) -%}
+<span class="badge{{ ' plain' if plain }}" data-tone="{{ value|tone }}">{{ text if text is not none else value|label }}</span>
+{%- endmacro %}
+
+{% macro lamp(value) -%}<span class="lamp" data-tone="{{ value|tone }}" aria-hidden="true"></span>{%- endmacro %}
+
+{% macro empty(icon_name, title, body="", href=None, action=None) -%}
+<div class="empty">{{ icon(icon_name) }}<b>{{ title }}</b>{% if body %}<p>{{ body }}</p>{% endif %}
+{% if href %}<a class="btn" href="{{ href }}">{{ action }}</a>{% endif %}</div>
+{%- endmacro %}
+
+{% macro field(name, text, value="", type="text", hint=None, placeholder="", required=False, cls="", attrs="", id=None) -%}
+<div class="field {{ cls }}"><label for="{{ id or 'f-' ~ name }}">{{ text }}</label>
+<input id="{{ id or 'f-' ~ name }}" name="{{ name }}" type="{{ type }}" value="{{ value if value is not none else '' }}" placeholder="{{ placeholder }}" {{ 'required' if required }} {{ attrs|safe }}>
+{% if hint %}<span class="hint">{{ hint }}</span>{% endif %}</div>
+{%- endmacro %}
+
+{% macro area(name, text, value="", hint=None, placeholder="", cls="", input_cls="", id=None) -%}
+<div class="field {{ cls }}"><label for="{{ id or 'f-' ~ name }}">{{ text }}</label>
+<textarea id="{{ id or 'f-' ~ name }}" name="{{ name }}" class="{{ input_cls }}" placeholder="{{ placeholder }}">{{ value if value is not none else '' }}</textarea>
+{% if hint %}<span class="hint">{{ hint }}</span>{% endif %}</div>
+{%- endmacro %}
+
+{% macro choice(name, text, options, selected=None, hint=None, cls="", attrs="") -%}
+<div class="field {{ cls }}"><label for="f-{{ name }}">{{ text }}</label>
+<select id="f-{{ name }}" name="{{ name }}" {{ attrs|safe }}>{% for v, l in options %}<option value="{{ v }}" {{ 'selected' if v|string == selected|string }}>{{ l }}</option>{% endfor %}</select>
+{% if hint %}<span class="hint">{{ hint }}</span>{% endif %}</div>
+{%- endmacro %}
+
+{% macro switch(name, title, desc="", checked=False, value="1") -%}
+<label class="switch"><input type="checkbox" name="{{ name }}" value="{{ value }}" {{ 'checked' if checked }}>
+<span class="switch-text"><b>{{ title }}</b>{% if desc %}<span>{{ desc }}</span>{% endif %}</span></label>
+{%- endmacro %}
+
+{% macro copy_field(value, text="Copy") -%}
+<div class="copy-field"><input class="input" readonly value="{{ value }}" aria-label="Link">
+<button type="button" class="btn" data-copy="{{ value }}">{{ icon('copy') }}<span>{{ text }}</span></button></div>
+{%- endmacro %}
+
+{% macro tel(number) -%}
+{% if number %}<a href="tel:{{ number }}" class="nowrap">{{ number|phone }}</a>{% else %}<span class="muted">Unknown</span>{% endif %}
+{%- endmacro %}
+
+{% macro save(text="Save changes") -%}
+<span class="dirty-note">Unsaved changes</span><button class="btn primary" type="submit">{{ text }}</button>
+{%- endmacro %}
+
+{% macro hours_editor(hours, days, day_names) -%}
+<div class="hours">{% for d in days %}{% set span = (hours.get(d) or [[None, None]])[0] %}
+<span class="day" data-day="{{ d }}">{{ day_names[d] }}</span>
+<input type="time" name="{{ d }}_open" value="{{ span[0] or '09:00' }}" data-day="{{ d }}" aria-label="{{ day_names[d] }} opens">
+<input type="time" name="{{ d }}_close" value="{{ span[1] or '17:00' }}" data-day="{{ d }}" aria-label="{{ day_names[d] }} closes">
+<label class="switch closed-toggle"><input type="checkbox" name="{{ d }}_closed" data-closed="{{ d }}" {{ 'checked' if not hours.get(d) }}><span class="switch-text"><b>Closed</b></span></label>
+{% endfor %}</div>
+{%- endmacro %}
+
+{% macro calls_table(calls, client=None, portal=False, show_client=False, names={}, compact=False) -%}
+{% if calls %}
+<div class="table-wrap"><table class="table stackable">
+<thead><tr>{% if compact %}<th>Call</th>{% else %}<th>When</th>{% if show_client %}<th>Business</th>{% endif %}<th>Caller</th>{% endif %}<th>Outcome</th>{% if not compact %}<th class="num">Length</th>{% endif %}<th>Summary</th></tr></thead>
+<tbody>{% for c in calls %}{% set href = ('/portal/calls/' if portal else '/calls/') ~ c.id %}
+<tr data-href="{{ href }}">
+{% if compact %}<td class="primary-cell" data-label="Call"><a href="{{ href }}">{{ names.get(c.client_id, '—') }}</a><span class="sub">{{ c.created_at|localtime(client.timezone if client else None) }}</span></td>
+{% else %}<td class="primary-cell when" data-label="When"><a href="{{ href }}">{{ c.created_at|localtime(client.timezone if client else None) }}</a></td>
+{% if show_client %}<td data-label="Business" class="hide-sm nowrap">{{ names.get(c.client_id, '—') }}</td>{% endif %}
+<td data-label="Caller" class="nowrap">{{ c.from_number|phone }}</td>{% endif %}
+<td data-label="Outcome" class="end-cell"><span class="cluster">{{ badge(c.outcome or c.status or 'pending') }}{% if c.flagged and not c.reviewed and not portal %}{{ badge('review', 'Review') }}{% endif %}</span></td>
+{% if not compact %}<td data-label="Length" class="num">{{ c.duration_seconds|duration }}</td>{% endif %}
+<td class="summary" data-label="Summary"><span class="clamp-2">{{ c.summary or '' }}</span></td>
+</tr>{% endfor %}</tbody></table></div>
+{% else %}{{ empty('phone', 'No calls yet', 'Calls show up here the moment the receptionist answers one.') }}{% endif %}
+{%- endmacro %}

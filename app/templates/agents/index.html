@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% import "_ui.html" as ui with context %}
+{% block title %}Agents – {{ brand.brand_name }}{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div><h1>Agents</h1>
+    <p class="lede">Your team runs the agency on a schedule. Anything that spends money or contacts someone waits here for you, unless that agent is on Autopilot.</p></div>
+  <div class="cluster">
+    <a class="btn" href="/agents/learning">{{ ui.icon('sparkles') }}What's working</a>
+    <a class="btn" href="/agents/office">{{ ui.icon('building') }}Office view</a>
+    <form method="post" action="/agents/switch"><button class="btn {{ 'danger' if agency.agents_enabled else 'primary' }}" type="submit">{{ 'Pause all agents' if agency.agents_enabled else 'Resume all agents' }}</button></form>
+  </div>
+</div>
+{% if not agency.agents_enabled %}<div class="callout" data-tone="bad">{{ ui.icon('alert') }}<span>All agents are paused. Nothing runs and nothing is sent until you resume.</span></div>{% endif %}
+
+<section class="surface">
+  <div class="surface-head"><div><h2>Waiting for you{% if pending %} ({{ pending|length }}){% endif %}</h2><div class="sub">Approve to do it now. Rejected actions are never proposed again.</div></div>
+    {% if pending|length > 1 %}<form method="post" action="/agents/actions/approve-all" data-confirm="Every waiting action runs now: emails are sent, numbers bought, links emailed." data-confirm-title="Approve all {{ pending|length }}?" data-confirm-ok="Approve all"><button class="btn sm" type="submit">Approve all</button></form>{% endif %}</div>
+  {% if pending or waiting %}<ul class="rows">{% for a in pending %}{% set back = '/agents' %}{% include "agents/_action.html" %}{% endfor %}
+    {% for a in waiting %}{% set back = '/agents' %}{% include "agents/_action.html" %}{% endfor %}</ul>
+  {% else %}{{ ui.empty('check', 'Nothing waiting', "When an agent on Ask me first wants to send an email or spend money, it shows up here.") }}{% endif %}
+</section>
+
+<section class="surface">
+  <div class="surface-head"><h2>The team</h2></div>
+  <ul class="rows">{% for agent in team %}{% set cfg = cfgs[agent.key] %}
+    <li class="agent-row">
+      <span class="agent-icon">{{ ui.icon(agent.icon) }}</span>
+      <a class="row-link" href="/agents/{{ agent.key }}"><span class="grow"><span class="title">{{ agent.title }}</span>
+        <span class="text">{{ cfg.last_summary or agent.role }}</span>
+        <span class="meta"><span>Runs {{ every(cfg.interval_minutes) }}</span>{% include "agents/_status.html" %}</span></span></a>
+      <span class="end">{% set key = agent.key %}{% set mode = cfg.mode %}{% set back = '/agents' %}{% include "agents/_mode.html" %}
+        <form method="post" action="/agents/{{ agent.key }}/run"><button class="btn sm" type="submit" {{ 'disabled' if cfg.running_since }}>Run now</button></form></span>
+    </li>{% endfor %}</ul>
+</section>
+
+<section class="surface">
+  <div class="surface-head"><h2>Activity</h2></div>
+  {% if recent %}<ul class="rows">{% for a in recent %}{% set back = '/agents' %}{% include "agents/_action.html" %}{% endfor %}</ul>
+  {% else %}{{ ui.empty('workflow', 'No actions yet', 'Emails sent, numbers bought and answers published by agents are listed here.') }}{% endif %}
+</section>
+{% endblock %}

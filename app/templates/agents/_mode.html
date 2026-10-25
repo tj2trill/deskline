@@ -1,0 +1,8 @@
+{# segmented Off / Ask me first / Autopilot control; submits on change #}
+<form class="inline" method="post" action="/agents/{{ key }}/mode" data-autosubmit>
+  <input type="hidden" name="back" value="{{ back }}">
+  <div class="segmented" role="radiogroup" aria-label="Mode">
+  {% for m, text in modes.items() %}<label><input type="radio" name="mode" value="{{ m }}" {{ 'checked' if mode == m }}><span>{{ text }}</span></label>{% endfor %}
+  </div>
+  <noscript><button class="btn sm" type="submit">Save</button></noscript>
+</form>

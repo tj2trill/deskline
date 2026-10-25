@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% import "_ui.html" as ui with context %}
+{% block title %}Dashboard – {{ brand.brand_name }}{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div><h1>Dashboard</h1><p class="lede">How your receptionists and your margins are doing this month.</p></div>
+  <a class="btn primary" href="/clients/new">{{ ui.icon('plus') }}New client</a>
+</div>
+
+<div class="stats">
+  <div class="stat"><div class="label">Billable this month</div><div class="value">{{ totals.revenue|money(0) }}</div><div class="note">{{ active }} active, {{ demos }} in demo</div></div>
+  <div class="stat"><div class="label">Provider cost</div><div class="value">{{ totals.cost|money(0) }}</div><div class="note">{{ totals.minutes }} billable minutes</div></div>
+  <div class="stat"><div class="label">Gross margin</div><div class="value" {% if totals.revenue - totals.cost < 0 %}data-tone="bad"{% endif %}>{{ (totals.revenue - totals.cost)|money(0) }}</div>
+    <div class="note">{% if totals.revenue %}{{ ((totals.revenue - totals.cost) / totals.revenue * 100)|round|int }}% of billable{% else %}No billable clients yet{% endif %}</div></div>
+  <div class="stat"><div class="label">Calls handled</div><div class="value">{{ totals.calls }}</div><div class="note">{{ new_contacts }} messages waiting</div></div>
+</div>
+
+{% if counts.review or new_contacts %}
+<div class="callout" data-tone="brand">{{ ui.icon('lightbulb') }}
+  <span class="cluster">{% if counts.review %}<a href="/calls">{{ counts.review }} call{{ 's' if counts.review != 1 }} to review</a>{% endif %}
+  {% if new_contacts %}<span>{{ new_contacts }} unhandled message{{ 's' if new_contacts != 1 }} or lead{{ 's' if new_contacts != 1 }} across clients</span>{% endif %}</span></div>
+{% endif %}
+
+<div class="layout main-side">
+  <section class="surface">
+    <div class="surface-head"><h2>Recent calls</h2><a class="btn ghost sm" href="/calls">All calls</a></div>
+    {{ ui.calls_table(recent, show_client=True, names=names, compact=True) }}
+  </section>
+  <div class="stack">
+    <section class="surface">
+      <div class="surface-head"><h2>Clients</h2><a class="btn ghost sm" href="/billing">Margins</a></div>
+      {% if rows %}<ul class="rows">{% for r in rows[:8] %}<li>
+        <a class="row-link" href="/clients/{{ r.client.id }}">{{ ui.lamp(r.client.status) }}
+          <span class="grow"><span class="title">{{ r.client.name }}</span><span class="meta"><span>{{ r.client.status|label }}</span><span>{{ r.usage.calls }} calls</span></span></span>
+          <span class="end"><span class="small {{ 'strong' if r.revenue }}">{{ r.revenue|money(0) }}</span></span></a></li>{% endfor %}</ul>
+      {% else %}{{ ui.empty('building', 'No clients yet', 'Paste a business website and you get a working receptionist in about a minute.', '/clients/new', 'Build a receptionist') }}{% endif %}
+    </section>
+    <section class="surface">
+      <div class="surface-head"><h2>Sales pipeline</h2><a class="btn ghost sm" href="/leads">Lead finder</a></div>
+      <ul class="rows">{% for s in ['new','contacted','replied','demo','won'] %}
+        <li>{{ ui.lamp(s) }}<span class="grow">{{ s|label }}</span><span class="end strong">{{ pipeline.get(s, 0) }}</span></li>{% endfor %}</ul>
+    </section>
+  </div>
+</div>
+{% endblock %}

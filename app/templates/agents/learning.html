@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% import "_ui.html" as ui with context %}
+{% block title %}What's working – {{ brand.brand_name }}{% endblock %}
+{% macro verdict(v) -%}
+{%- set m = {'works': ('good', 'Working'), 'earns': ('good', 'Earns'), 'fails': ('bad', 'Not working'), 'loses': ('bad', 'Loses money'), 'average': ('neutral', 'About average'), 'early': ('neutral', 'Too early')} -%}
+<span class="badge" data-tone="{{ m[v][0] if v in m else 'neutral' }}">{{ m[v][1] if v in m else v }}</span>
+{%- endmacro %}
+{% macro rate(row) -%}
+{% if row.n %}<span class="strong">{{ '%.1f'|format(row.rate * 100) }}%</span> <span class="xs muted nowrap">{{ '%.0f'|format(row.lo * 100) }}–{{ '%.0f'|format(row.hi * 100) }}%</span>{% else %}<span class="muted">—</span>{% endif %}
+{%- endmacro %}
+{% block content %}
+{% set f = r.funnel %}
+{% set dated = {} %}{% for l in lessons %}{% set _ = dated.update({l.key: l.changed_at}) %}{% endfor %}
+<div class="page-head">
+  <div><a class="back" href="/agents">{{ ui.icon('back') }}Agents</a>
+    <h1>What's working</h1>
+    <p class="lede">Measured from real results: emails actually sent, replies, calls to demo lines, wins, Stripe payments and call costs. The Strategist re-checks every {{ (cfg.interval_minutes / 60)|round|int }} hours and turns what it finds into proposals.</p></div>
+  <div class="cluster"><a class="btn" href="/agents/office">{{ ui.icon('building') }}Office</a>
+    <form method="post" action="/agents/strategist/run"><button class="btn primary" type="submit">{{ ui.icon('refresh') }}Re-check now</button></form></div>
+</div>
+
+{% if not reply_capture %}<div class="callout" data-tone="brand">{{ ui.icon('lightbulb') }}<span class="grow">Replies are only counted when you mark prospects replied by hand. Turn on reply capture in <a href="/settings">Settings</a> so every reply is sorted and learned from automatically.</span></div>{% endif %}
+
+<div class="stats">
+  <div class="stat"><div class="label">Leads found</div><div class="value">{{ f.leads }}</div><div class="note">{{ f.contacted }} emailed</div></div>
+  <div class="stat"><div class="label">Positive replies</div><div class="value">{{ f.positive }}</div><div class="note">{% if f.contacted %}{{ '%.1f'|format(f.positive / f.contacted * 100) }}% of emailed{% else %}nothing sent yet{% endif %}{% if f.engaged > f.positive %}, {{ f.engaged - f.positive }} more called a demo{% endif %}</div></div>
+  <div class="stat"><div class="label">Won</div><div class="value">{{ f.won }}</div><div class="note">{{ f.paying }} paying</div></div>
+  <div class="stat"><div class="label">Subscriptions won</div><div class="value">{{ f.mrr|money(0) }}</div><div class="note">{{ f.revenue|money(0) }} collected from outreach clients</div></div>
+</div>
+
+{% set good = r.lessons|selectattr('verdict', 'in', ['works', 'earns'])|list %}
+{% set bad = r.lessons|selectattr('verdict', 'in', ['fails', 'loses'])|list %}
+<div class="layout two">
+  <section class="surface"><div class="surface-head"><h2>What works and earns</h2></div>
+    {% if good %}<ul class="rows">{% for l in good %}<li>{{ ui.lamp('good') }}<span class="grow"><span class="text ink">{{ l.statement }}</span>{% if dated.get(l.key) %}<span class="meta"><span>Since {{ dated[l.key]|localtime(None, '%b %d') }}</span></span>{% endif %}</span></li>{% endfor %}</ul>
+    {% else %}{{ ui.empty('sparkles', 'Nothing proven yet', "A result is only called working with at least " ~ r.min_n ~ " emails behind it and " ~ (r.sure * 100)|int ~ "% confidence.") }}{% endif %}
+  </section>
+  <section class="surface"><div class="surface-head"><h2>What doesn't, or loses money</h2></div>
+    {% if bad %}<ul class="rows">{% for l in bad %}<li>{{ ui.lamp('bad') }}<span class="grow"><span class="text ink">{{ l.statement }}</span>{% if dated.get(l.key) %}<span class="meta"><span>Since {{ dated[l.key]|localtime(None, '%b %d') }}</span></span>{% endif %}</span></li>{% endfor %}</ul>
+    {% else %}{{ ui.empty('check', 'Nothing flagged', 'Losing clients, dead targets and weak emails show up here once the data says so.') }}{% endif %}
+  </section>
+</div>
+
+<section class="surface"><div class="surface-head"><div><h2>Clients: who makes money</h2><div class="sub">Last 30 days. Billable is what their plan charges for the minutes used; cost is the estimated provider cost.</div></div></div>
+  {% if r.clients %}<div class="table-wrap"><table class="table stackable"><thead><tr><th>Client</th><th>Industry</th><th class="num">Calls</th><th class="num">Billable</th><th class="num">Cost</th><th class="num">Margin</th><th></th></tr></thead>
+  <tbody>{% for m in r.clients %}<tr data-href="/clients/{{ m.id }}?tab=billing"><td class="primary-cell" data-label="Client"><a href="/clients/{{ m.id }}?tab=billing">{{ m.name }}</a>{% if not m.paying %}<span class="sub">Not paying yet</span>{% endif %}</td>
+    <td data-label="Industry">{{ m.industry|title }}</td><td class="num" data-label="Calls">{{ m.calls }}</td><td class="num" data-label="Billable">{{ m.revenue|money(0) }}</td>
+    <td class="num" data-label="Cost">{{ m.cost|money(0) }}</td><td class="num {{ 'text-bad' if m.margin < 0 }}" data-label="Margin">{{ m.margin|money(0) }}</td>
+    <td data-label="">{{ verdict('loses' if m.margin < 0 else ('earns' if m.paying else 'early')) }}</td></tr>{% endfor %}</tbody></table></div>
+  {% else %}{{ ui.empty('building', 'No active clients yet') }}{% endif %}
+  {% if r.niches|length > 1 %}<div class="surface-head divided"><h3>By industry</h3></div>
+  <div class="table-wrap"><table class="table stackable"><thead><tr><th>Industry</th><th class="num">Clients</th><th class="num">Paying</th><th class="num">Billable</th><th class="num">Margin</th><th class="num">Canceled</th></tr></thead>
+  <tbody>{% for n in r.niches %}<tr><td class="primary-cell" data-label="Industry">{{ n.niche|title }}</td><td class="num" data-label="Clients">{{ n.clients }}</td><td class="num" data-label="Paying">{{ n.paying }}</td>
+    <td class="num" data-label="Billable">{{ n.revenue|money(0) }}</td><td class="num {{ 'text-bad' if n.margin < 0 }}" data-label="Margin">{{ n.margin|money(0) }}{% if n.revenue %} <span class="xs muted">{{ (n.margin_pct * 100)|round|int }}%</span>{% endif %}</td><td class="num" data-label="Canceled">{{ n.canceled }}</td></tr>{% endfor %}</tbody></table></div>{% endif %}
+</section>
+
+<section class="surface"><div class="surface-head"><div><h2>Search targets</h2><div class="sub">The Prospector searches the best-looking targets first and still tries new ones. Rate shows positive replies with a 90% range.</div></div></div>
+  {% if r.targets %}<div class="table-wrap"><table class="table stackable"><thead><tr><th>Target</th><th class="num">Searches</th><th class="num">Found</th><th class="num">Emailed</th><th class="num">Positive</th><th>Rate</th><th class="num">Paying</th><th class="num">Monthly</th><th></th></tr></thead>
+  <tbody>{% for t in r.targets %}<tr><td class="primary-cell" data-label="Target">{{ t.label }}</td><td class="num" data-label="Searches">{{ t.searches }}</td><td class="num" data-label="Found">{{ t.leads }}</td><td class="num" data-label="Emailed">{{ t.n }}</td>
+    <td class="num" data-label="Positive">{{ t.pos }}</td><td data-label="Rate">{{ rate(t) }}</td><td class="num" data-label="Paying">{{ t.paying }}</td><td class="num" data-label="Monthly">{{ t.mrr|money(0) }}</td><td data-label="">{{ verdict(t.verdict) }}</td></tr>{% endfor %}</tbody></table></div>
+  {% else %}{{ ui.empty('search', 'No searches yet', 'Add targets to the Prospector.', '/agents/prospector', 'Add targets') }}{% endif %}
+</section>
+
+<div class="layout two">
+  <section class="surface"><div class="surface-head"><div><h2>Email angles</h2><div class="sub">Each prospect gets one opening angle. Outreach picks angles that earn replies in that niche, and keeps testing the others.</div></div></div>
+    {% if r.angles %}<div class="table-wrap"><table class="table stackable"><thead><tr><th>Angle</th><th class="num">Sent</th><th class="num">Positive</th><th>Rate</th><th class="num">Unsub.</th><th></th></tr></thead>
+    <tbody>{% for a in r.angles %}<tr><td class="primary-cell" data-label="Angle">{{ a.label }}</td><td class="num" data-label="Sent">{{ a.n }}</td><td class="num" data-label="Positive">{{ a.pos }}</td><td data-label="Rate">{{ rate(a) }}</td><td class="num" data-label="Unsub.">{{ a.unsub }}</td><td data-label="">{{ verdict(a.verdict) }}</td></tr>{% endfor %}</tbody></table></div>
+    {% else %}{{ ui.empty('send', 'No emails sent yet') }}{% endif %}
+  </section>
+  <section class="surface"><div class="surface-head"><h2>Demo line, lead score, send time</h2></div>
+    {% set rows = [] %}{% for d in r.demo %}{% set _ = rows.append(('Demo line', 'With a demo line' if d.key == 'with' else 'Without', d)) %}{% endfor %}
+    {% for d in r.scores %}{% set _ = rows.append(('Lead score', d.label, d)) %}{% endfor %}{% for d in r.timing %}{% set _ = rows.append(('Sent', d.label, d)) %}{% endfor %}
+    {% if rows %}<div class="table-wrap"><table class="table stackable"><thead><tr><th>Group</th><th class="num">Sent</th><th>Rate</th><th></th></tr></thead>
+    <tbody>{% for g, label, d in rows %}<tr><td class="primary-cell" data-label="Group">{{ label }}<span class="sub">{{ g }}</span></td><td class="num" data-label="Sent">{{ d.n }}</td><td data-label="Rate">{{ rate(d) }}</td><td data-label="">{% if g != 'Demo line' %}{{ verdict(d.verdict) }}{% endif %}</td></tr>{% endfor %}</tbody></table></div>
+    {% else %}{{ ui.empty('lightbulb', 'Nothing to compare yet') }}{% endif %}
+  </section>
+</div>
+
+<section class="surface"><div class="surface-head"><h2>How the learning works</h2></div>
+  <div class="surface-body stack-s small ink-2">
+    <p class="m0">A positive reply is an interested reply or a question, a prospect you marked replied or won, or a paying client. Unsubscribes and "no thanks" don't count.</p>
+    <p class="m0">Something is called working or not working only once it has {{ r.min_n }} emails behind it and is at least {{ (r.sure * 100)|int }}% likely to beat, or trail, everything else. When many things are compared at once the bar is raised, so ten targets don't produce a lucky "winner" by chance. Until then it's "too early", even if the early numbers look good. Each rate starts from your overall reply rate ({{ '%.1f'|format(f.base * 100) }}%), so one lucky reply can't make a winner.</p>
+    <p class="m0">The agents use the same numbers when they choose. Most of the time they pick what looks best and sometimes they try something unproven, so a weak early read gets corrected. Changes to settings, like retiring a target or raising the score cutoff, go through the Strategist and wait for your OK unless it's on Autopilot.</p>
+  </div>
+</section>
+{% endblock %}

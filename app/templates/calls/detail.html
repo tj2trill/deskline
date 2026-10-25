@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% import "_ui.html" as ui with context %}
+{% block title %}Call from {{ call.from_number|phone }} – {{ brand.brand_name }}{% endblock %}
+{% block content %}
+{% set tz = client.timezone if client else None %}
+{% set back_href = '/portal/calls' if portal else ('/clients/' ~ client.id ~ '?tab=calls' if client else '/calls') %}
+<div class="page-head">
+  <div>
+    <a class="back" href="{{ back_href }}">{{ ui.icon('back') }}{{ 'Calls' if portal or not client else client.name }}</a>
+    <h1>Call from {{ call.from_number|phone }} {{ ui.badge(call.outcome or call.status or 'pending') }}</h1>
+    <div class="meta"><span>{{ (call.started_at or call.created_at)|localtime(tz, '%A, %B %d at %I:%M %p') }}</span><span>{{ call.duration_seconds|duration }} long</span>
+      {% if call.sentiment %}{{ ui.badge(call.sentiment, call.sentiment|capitalize ~ ' caller') }}{% endif %}</div>
+  </div>
+  {% if call.flagged and not portal and not call.reviewed %}<form method="post" action="/calls/{{ call.id }}/reviewed"><button class="btn" type="submit">{{ ui.icon('check') }}Mark reviewed</button></form>{% endif %}
+</div>
+{% if call.flagged and not portal %}<div class="callout" data-tone="bad">{{ ui.icon('alert') }}<span><b>{{ 'Reviewed' if call.reviewed else 'Needs review' }}:</b> {{ call.flag_reason }}</span></div>{% endif %}
+
+<div class="layout main-side">
+  <section class="surface">
+    <div class="surface-head"><h2>Conversation</h2>{% if call.from_number %}<a class="btn sm" href="tel:{{ call.from_number }}">{{ ui.icon('phone') }}Call back</a>{% endif %}</div>
+    {% if call.recording_url %}<div class="recording"><audio controls preload="none" src="{{ call.recording_url }}"></audio></div>{% endif %}
+    {% set convo = call.transcript|turns %}
+    {% if convo %}<div class="convo">{% for t in convo %}
+      <div class="turn {{ t.who }}"><span class="who">{{ (client.agent.name if client and client.agent else 'Receptionist') if t.who == 'agent' else ('Caller' if t.who == 'caller' else '') }}</span><div class="bubble">{{ t.text }}</div></div>{% endfor %}</div>
+    {% else %}{{ ui.empty('chat', 'No transcript', 'Very short or unanswered calls have nothing to transcribe.') }}{% endif %}
+  </section>
+  <div class="stack">
+    <section class="surface"><div class="surface-head"><h2>Summary</h2></div><div class="surface-body"><p class="prose m0">{{ call.summary or 'No summary for this call.' }}</p></div></section>
+    {% if contacts or bookings %}<section class="surface"><div class="surface-head"><h2>Captured on this call</h2></div>
+      <ul class="rows">
+      {% for b in bookings %}<li>{{ ui.lamp('booked') }}<span class="grow"><span class="title">Booked {{ b.start_at|localtime(tz, '%a %b %d, %I:%M %p') }}</span><span class="text">{{ b.name }}{% if b.service %}, {{ b.service }}{% endif %}</span><span class="meta">{{ ui.tel(b.phone) }}</span></span></li>{% endfor %}
+      {% for c in contacts %}<li>{{ ui.lamp('urgent' if c.urgency == 'urgent' else c.kind) }}<span class="grow"><span class="title">{{ c.kind|label }}: {{ c.name or 'Caller' }}</span><span class="text">{{ c.details or '' }}</span><span class="meta">{{ ui.tel(c.phone) }}</span></span></li>{% endfor %}
+      </ul></section>{% endif %}
+    {% if not portal %}<section class="surface"><div class="surface-head"><h2>Details</h2></div><div class="surface-body">
+      <dl class="kv">
+        <dt>Business</dt><dd>{% if client %}<a href="/clients/{{ client.id }}">{{ client.name }}</a>{% else %}Unmatched{% endif %}</dd>
+        <dt>Called</dt><dd>{{ call.to_number|phone }}</dd>
+        <dt>Ended by</dt><dd>{{ (call.ended_reason or '—')|replace('-', ' ') }}</dd>
+        <dt>Billable</dt><dd>{{ call.billable_minutes }} min{% if call.usage_reported %}, sent to Stripe{% endif %}</dd>
+        <dt>Provider cost</dt><dd>{{ cost|money(3) if cost is not none else '—' }}{% if call.cost_cents is none and cost is not none %} (estimate){% endif %}</dd>
+        <dt>Vapi call</dt><dd class="small">{{ call.vapi_call_id }}</dd>
+      </dl>
+      {% if call.structured %}<details class="mt"><summary class="small strong">Extracted data</summary><div class="codebox mt-s">{{ call.structured|tojson(indent=2) }}</div></details>{% endif %}
+    </div></section>{% endif %}
+  </div>
+</div>
+{% endblock %}

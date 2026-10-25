@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% import "_ui.html" as ui with context %}
+{% block title %}Messages and bookings – {{ c.name }}{% endblock %}
+{% block content %}
+<div class="page-head"><div><h1>Messages and bookings</h1><p class="lede">Everything callers and website visitors left for you.</p></div></div>
+<div class="layout two">
+  <section class="surface"><div class="surface-head"><h2>Messages and leads</h2></div>
+  {% if contacts %}<ul class="rows">{% for ct in contacts %}<li>{{ ui.lamp('urgent' if ct.urgency == 'urgent' else ct.kind) }}
+    <span class="grow"><span class="title">{{ ct.name or 'Caller' }}</span><span class="text">{{ ct.details or '' }}</span>
+      <span class="meta">{{ ui.tel(ct.phone) }}{% if ct.email %}<a href="mailto:{{ ct.email }}">{{ ct.email }}</a>{% endif %}<span>{{ ct.source|label }}</span><span>{{ ct.created_at|localtime(c.timezone) }}</span></span></span>
+    <span class="end">{% if ct.status == 'new' %}<form method="post" action="/portal/contacts/{{ ct.id }}/handled"><button class="btn sm" type="submit">{{ ui.icon('check') }}Done</button></form>{% else %}{{ ui.badge('handled', 'Done') }}{% endif %}</span></li>{% endfor %}</ul>
+  {% else %}{{ ui.empty('inbox', 'No messages yet', 'Messages, callback requests and new leads land here.') }}{% endif %}</section>
+  <section class="surface"><div class="surface-head"><h2>Bookings</h2></div>
+  {% if bookings %}<ul class="rows">{% for b in bookings %}<li>{{ ui.lamp('booked' if b.status == 'confirmed' else 'cancelled') }}
+    <span class="grow"><span class="title">{{ b.start_at|localtime(c.timezone, '%a %b %d, %I:%M %p') }}</span><span class="text">{{ b.name }}{% if b.service %}, {{ b.service }}{% endif %}</span>
+      <span class="meta">{{ ui.tel(b.phone) }}{% if b.status != 'confirmed' %}<span>{{ b.status|label }}</span>{% endif %}</span></span></li>{% endfor %}</ul>
+  {% else %}{{ ui.empty('calendar', 'No bookings yet', 'Appointments your receptionist books appear here.') }}{% endif %}</section>
+</div>
+{% endblock %}

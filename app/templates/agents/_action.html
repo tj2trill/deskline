@@ -1,0 +1,16 @@
+{# one approval row; expects `a`, `back`, `registry`, `label_of` #}
+{% import "_ui.html" as ui with context %}
+<li class="block">
+  <div class="split">
+    <span class="cluster grow">{{ ui.lamp('wait' if a.status == 'pending' else ('ok' if a.status == 'done' else ('neutral' if a.status == 'rejected' else ('wait' if a.status == 'approved' else 'error')))) }}
+      <span class="grow"><span class="title">{{ a.title }}</span>
+        <span class="meta"><span>{{ registry[a.agent_key].title if a.agent_key in registry else a.agent_key }}</span><span>{{ label_of(a.kind) }}</span><span>{{ (a.decided_at or a.created_at)|localtime }}</span>
+          {% if a.status not in ['pending'] %}<span>{{ {'done':'Done','failed':'Failed','rejected':'Rejected','approved':'Approved, waiting'}[a.status] }}{% if a.decided_by %} by {{ 'Autopilot' if a.decided_by.startswith('autopilot') else a.decided_by }}{% endif %}</span>{% endif %}</span></span></span>
+    {% if a.status == 'pending' %}<span class="end">
+      <form method="post" action="/agents/actions/{{ a.id }}/reject"><input type="hidden" name="back" value="{{ back }}"><button class="btn ghost sm" type="submit">Reject</button></form>
+      <form method="post" action="/agents/actions/{{ a.id }}/approve"><input type="hidden" name="back" value="{{ back }}"><button class="btn primary sm" type="submit">{{ ui.icon('check') }}Approve</button></form></span>
+    {% elif a.status == 'failed' %}<span class="end"><form method="post" action="/agents/actions/{{ a.id }}/retry"><input type="hidden" name="back" value="{{ back }}"><button class="btn sm" type="submit">{{ ui.icon('refresh') }}Retry</button></form></span>{% endif %}
+  </div>
+  {% if a.detail or a.result %}<details class="mt-s"><summary class="small muted">Details</summary>
+    {% if a.detail %}<div class="log">{{ a.detail }}</div>{% endif %}{% if a.result %}<div class="small {{ 'text-bad' if a.status == 'failed' else 'muted' }} mt-s">{{ a.result }}</div>{% endif %}</details>{% endif %}
+</li>

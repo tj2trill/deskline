@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% import "_ui.html" as ui with context %}
+{% block title %}Clients – {{ brand.brand_name }}{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div><h1>Clients</h1><p class="lede">Every business you run a receptionist for, including demos you're pitching.</p></div>
+  <a class="btn primary" href="/clients/new">{{ ui.icon('plus') }}New client</a>
+</div>
+<section class="surface">
+{% if clients %}
+<div class="table-wrap"><table class="table stackable">
+<thead><tr><th>Business</th><th>Status</th><th>Receptionist</th><th>Number</th><th class="num">Calls</th><th class="num">Minutes</th><th>Billing</th></tr></thead>
+<tbody>{% for c in clients %}{% set u = usage.get(c.id, {}) %}
+<tr data-href="/clients/{{ c.id }}">
+  <td class="primary-cell" data-label="Business"><a href="/clients/{{ c.id }}">{{ c.name }}</a><span class="sub">{{ c.industry or c.website or '' }}</span></td>
+  <td data-label="Status" class="end-cell">{{ ui.badge(c.status) }}</td>
+  <td data-label="Receptionist">{% if c.agent %}{{ ui.badge(c.agent.build_status if c.agent.build_status != 'ready' else c.agent.sync_status) }}{% endif %}</td>
+  <td data-label="Number" class="nowrap">{% for n in c.numbers %}<div>{{ n.number|phone if n.number else 'Provisioning' }}</div>{% else %}<span class="muted">None yet</span>{% endfor %}</td>
+  <td data-label="Calls" class="num">{{ u.get('calls', 0) }}</td>
+  <td data-label="Minutes" class="num">{{ u.get('minutes', 0) }}</td>
+  <td data-label="Billing">{% if c.stripe_status %}{{ ui.badge(c.stripe_status) }}{% else %}<span class="muted">Not set up</span>{% endif %}</td>
+</tr>{% endfor %}</tbody></table></div>
+{% else %}
+{{ ui.empty('building', 'No clients yet', 'Paste a business website and you get a working receptionist in about a minute. Start with a prospect to use it as a live demo.', '/clients/new', 'Build a receptionist') }}
+{% endif %}
+</section>
+{% endblock %}

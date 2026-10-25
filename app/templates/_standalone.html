@@ -1,0 +1,12 @@
+{% import "_ui.html" as ui with context %}<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{% block title %}{{ brand.brand_name }}{% endblock %}</title>
+<link rel="preload" href="/static/fonts/ibm-plex-sans-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/static/app.css?v=2"><style>:root{--brand:{{ brand.primary_color or '#2b50c8' }}}</style></head>
+<body>{% include "_icons.html" %}
+<div class="auth"><div class="auth-card">
+  <div class="brand">{% if brand.logo_url %}<img src="{{ brand.logo_url }}" alt="{{ brand.brand_name }}">{% else %}<span class="brand-mark">{{ ui.icon('phone') }}</span>{{ brand.brand_name }}{% endif %}</div>
+  <div class="surface"><div class="surface-body stack">{% block body %}{% endblock %}</div></div>
+  {% if brand.support_email %}<p class="small muted mt center">Questions? <a href="mailto:{{ brand.support_email }}">{{ brand.support_email }}</a></p>{% endif %}
+</div></div>
+</body></html>

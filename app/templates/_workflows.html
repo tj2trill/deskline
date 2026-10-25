@@ -1,0 +1,30 @@
+{% import "_ui.html" as ui with context %}
+{% if workflows %}<ul class="rows">{% for w in workflows %}<li>{{ ui.lamp('active' if w.enabled else 'neutral') }}
+  <span class="grow"><span class="title">{{ w.name }}</span>
+    <span class="text">When {{ triggers[w.trigger]|lower }}{% for c in w.conditions %} and {{ c.field|replace('_',' ') }} {{ c.op|replace('_',' ') }} "{{ c.value }}"{% endfor %},
+      {% for a in w.actions %}{{ {'sms':'send a text to','email':'send an email to','webhook':'post to'}[a.type] }} {{ a.to or a.url }}{% endfor %}.</span>
+    <span class="meta">{% if not scope_client and names is defined %}<span>{{ names.get(w.client_id, 'All clients') }}</span>{% endif %}<span>Ran {{ w.run_count }} time{{ 's' if w.run_count != 1 }}</span>{% if w.last_error %}<span class="text-bad">Last run failed: {{ w.last_error }}</span>{% endif %}</span></span>
+  <span class="end">
+    <form method="post" action="/workflows/{{ w.id }}/toggle"><button class="btn sm">{{ 'Pause' if w.enabled else 'Resume' }}</button></form>
+    <form method="post" action="/workflows/{{ w.id }}/delete" data-confirm="It stops running immediately." data-confirm-title="Delete “{{ w.name }}”?" data-confirm-ok="Delete"><button class="btn ghost sm icon-only" aria-label="Delete">{{ ui.icon('trash') }}</button></form>
+  </span></li>{% endfor %}</ul>
+{% endif %}
+<form method="post" action="/workflows">
+  <input type="hidden" name="client_id" value="{{ scope_client or '' }}">
+  <div class="surface-body form-grid{{ ' divided' if workflows }}">
+    <h3 class="full">New automation</h3>
+    {{ ui.field('name', 'Name', placeholder='Text the owner about urgent calls', required=True, cls='full', id='wf-name') }}
+    {{ ui.choice('trigger', 'When', triggers.items()|list) }}
+    <div class="field"><label for="f-cond_field">Only if <span class="muted">(optional)</span></label>
+      <div class="cluster nowrap-row">
+        <select id="f-cond_field" name="cond_field" class="input"><option value="">Always</option>{% for f in fields %}<option value="{{ f }}">{{ f|replace('_',' ') }}</option>{% endfor %}</select>
+        <select name="cond_op" class="input" aria-label="Comparison">{% for o in ops %}<option value="{{ o }}">{{ o|replace('_',' ') }}</option>{% endfor %}</select></div></div>
+    {{ ui.field('cond_value', 'Value', placeholder='urgent') }}
+    {{ ui.choice('action_type', 'Then', [('sms','Send a text'),('email','Send an email'),('webhook','Post to a webhook')]) }}
+    {{ ui.field('action_to', 'To', placeholder='{owner_phone}, {owner_email} or https://…', cls='full') }}
+    {{ ui.field('action_subject', 'Email subject', placeholder='New lead for {client_name}', cls='full') }}
+    {{ ui.area('action_text', 'Message', placeholder='{caller_name} ({caller_number}): {summary}', cls='full',
+       hint='You can use {client_name} {caller_name} {caller_number} {outcome} {summary} {booking_time} {service} {message} {urgency} {recording_url} {call_url}') }}
+  </div>
+  <div class="surface-foot"><button class="btn primary" type="submit">Add automation</button></div>
+</form>

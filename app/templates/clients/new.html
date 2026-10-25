@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% import "_ui.html" as ui with context %}
+{% block title %}New client – {{ brand.brand_name }}{% endblock %}
+{% block content %}
+<div class="page-head"><div>
+  <a class="back" href="/clients">{{ ui.icon('back') }}Clients</a>
+  <h1>New client</h1>
+  <p class="lede">Paste their website and the receptionist learns their services, hours and FAQs from it. You can change anything afterwards.</p>
+</div></div>
+<form class="surface w-form" method="post" action="/clients">
+  <div class="surface-body">
+    <div class="form-grid">
+      {{ ui.field('website', 'Website', website, placeholder='acmeplumbing.ca', hint='Recommended. Up to a dozen pages are read.', cls='full', attrs='autofocus inputmode="url"') }}
+    </div>
+    <h3 class="section-title">Business</h3>
+    <div class="form-grid">
+      {{ ui.field('name', 'Business name', name, hint='Leave blank to use the name on their website.') }}
+      {{ ui.field('industry', 'Industry', placeholder='Plumbing, dental clinic…') }}
+      {{ ui.field('business_phone', 'Main phone', phone, type='tel') }}
+      {{ ui.field('timezone', 'Timezone', 'America/Toronto') }}
+    </div>
+    <h3 class="section-title">Owner</h3>
+    <div class="form-grid">
+      {{ ui.field('owner_name', 'Name') }}
+      {{ ui.field('owner_email', 'Email', type='email', hint='Gets a summary after every call.') }}
+      {{ ui.field('owner_phone', 'Mobile', type='tel') }}
+    </div>
+    <h3 class="section-title">Receptionist</h3>
+    <div class="form-grid">
+      {{ ui.field('agent_name', 'Receptionist name', 'Ava') }}
+      {{ ui.choice('status', 'Start as', [('demo', 'Demo (a prospect, not billed)'), ('active', 'Active client')], 'demo') }}
+    </div>
+  </div>
+  <div class="surface-foot"><a class="btn ghost" href="/clients">Cancel</a><button class="btn primary" type="submit">Build receptionist</button></div>
+</form>
+{% endblock %}

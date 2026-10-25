@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% import "_ui.html" as ui with context %}
+{% block title %}Business info – {{ c.name }}{% endblock %}
+{% block content %}
+{% set can_edit = c.owner_can_edit or user.is_agency %}
+<div class="page-head"><div><h1>Business info</h1><p class="lede">What your receptionist knows. Changes reach the next call within seconds.</p></div></div>
+{% if not can_edit %}<div class="callout">{{ ui.icon('shield') }}<span>Your provider manages these settings. Contact them to make changes.</span></div>{% endif %}
+<form method="post" action="/portal/business" data-track>
+  <div class="layout two">
+    <section class="surface"><div class="surface-head"><div><h2>Questions it couldn't answer</h2><div class="sub">Type an answer once and it's used on every future call.</div></div></div>
+      <div class="surface-body stack">
+        {% for g in gaps %}{{ ui.field('gap_' ~ g.id, g.question ~ ' (asked ' ~ g.times_asked ~ '×)', placeholder='Leave blank to skip') }}
+        {% else %}<div class="muted small">No unanswered questions right now.</div>{% endfor %}
+        {{ ui.area('custom_instructions', 'Anything else it should know', agent.custom_instructions or '' if agent else '', placeholder="We're closed Dec 24–26. Emergency calls go to Mike.") }}
+      </div></section>
+    <section class="surface"><div class="surface-head"><div><h2>Opening hours</h2><div class="sub">{{ c.timezone }}</div></div></div>
+      <div class="surface-body">{{ ui.hours_editor(c.business_hours, days, day_names) }}</div></section>
+  </div>
+  {% if can_edit %}<div class="save-bar mt">{{ ui.save() }}</div>{% endif %}
+</form>
+<form class="surface w-form" method="post" action="/account/password">
+  <div class="surface-head"><h2>Your password</h2></div>
+  <div class="surface-body form-grid">{{ ui.field('current', 'Current password', type='password', required=True) }}{{ ui.field('new', 'New password', type='password', required=True, hint='At least 10 characters.') }}</div>
+  <div class="surface-foot"><button class="btn" type="submit">Change password</button></div>
+</form>
+{% endblock %}

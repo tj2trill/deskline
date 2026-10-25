@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% import "_ui.html" as ui with context %}
+{% block title %}{{ search.niche|capitalize }} in {{ search.location }} – {{ brand.brand_name }}{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div><a class="back" href="/leads">{{ ui.icon('back') }}Lead finder</a>
+    <h1>{{ search.niche|capitalize }} in {{ search.location }}</h1><p class="lede">{{ prospects|length }} businesses, most likely to need a receptionist first.</p></div>
+  <div class="cluster">
+    <form method="post" action="/leads/{{ search.id }}/enrich"><input type="hidden" name="limit" value="10"><button class="btn" type="submit" title="Finds emails, chat widgets and online booking">{{ ui.icon('globe') }}Check top 10 websites</button></form>
+    <a class="btn" href="/leads/{{ search.id }}/export.csv" download>{{ ui.icon('download') }}Export CSV</a>
+  </div>
+</div>
+<section class="surface">
+{% if prospects %}<div class="table-wrap"><table class="table stackable">
+<thead><tr><th>Score</th><th>Business</th><th>Phone</th><th class="num">Rating</th><th>Why</th><th>Status</th></tr></thead>
+<tbody>{% for p in prospects %}<tr data-href="/prospects/{{ p.id }}">
+  <td data-label="Score"><span class="score">{{ p.score }}<span class="meter"><i style="width:{{ p.score }}%"></i></span></span></td>
+  <td class="primary-cell" data-label="Business"><a href="/prospects/{{ p.id }}">{{ p.name }}</a><span class="sub">{{ p.website.replace('https://','').replace('http://','').rstrip('/') if p.website else 'No website' }}</span></td>
+  <td data-label="Phone" class="nowrap">{{ p.phone|phone if p.phone else '—' }}</td>
+  <td data-label="Rating" class="num">{% if p.rating %}{{ p.rating }} ({{ p.review_count or 0 }}){% else %}—{% endif %}</td>
+  <td class="summary" data-label="Why"><span class="clamp-2">{{ (p.score_reasons or [])|join('. ') }}</span></td>
+  <td data-label="Status" class="end-cell">{{ ui.badge(p.status) }}</td>
+</tr>{% endfor %}</tbody></table></div>
+{% else %}{{ ui.empty('search', 'No new businesses found', 'Everything matching was already in your pipeline, or the search was too narrow.') }}{% endif %}
+</section>
+{% endblock %}

@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% import "_ui.html" as ui with context %}
+{% block title %}Lead finder – {{ brand.brand_name }}{% endblock %}
+{% block content %}
+<div class="page-head"><div><h1>Lead finder</h1>
+  <p class="lede">Find local businesses that lose jobs to missed calls. Every score shows its reasons so you can judge it yourself.</p></div></div>
+<div class="layout main-side">
+  <div class="stack">
+    <form class="surface" method="post" action="/leads/search">
+      <div class="surface-head"><div><h2>Search Google Maps</h2><div class="sub">Up to 60 businesses per search. Ones you already have are skipped.</div></div></div>
+      <div class="surface-body">
+        {% if not places_ready %}<div class="callout mb" data-tone="bad">{{ ui.icon('alert') }}<span>Add GOOGLE_PLACES_API_KEY with "Places API (New)" enabled, or import a CSV instead.</span></div>{% endif %}
+        <div class="inline-form">{{ ui.field('niche', 'Type of business', placeholder='plumber, dentist, HVAC', required=True) }}{{ ui.field('location', 'Where', placeholder='Hamilton, ON', required=True) }}
+          <button class="btn primary" type="submit">{{ ui.icon('search') }}Find businesses</button></div>
+      </div>
+    </form>
+    <section class="surface"><div class="surface-head"><h2>Best open prospects</h2></div>
+      {% if top %}<ul class="rows">{% for p in top %}<li><a class="row-link" href="/prospects/{{ p.id }}">
+        <span class="score" style="min-width:76px">{{ p.score }}<span class="meter"><i style="width:{{ p.score }}%"></i></span></span>
+        <span class="grow"><span class="title">{{ p.name }}</span><span class="text clamp-2">{{ (p.score_reasons or [])[:2]|join('. ') }}</span></span>
+        <span class="end">{{ ui.badge(p.status) }}</span></a></li>{% endfor %}</ul>
+      {% else %}{{ ui.empty('search', 'No prospects yet', 'Run a search above to fill your pipeline.') }}{% endif %}
+    </section>
+  </div>
+  <div class="stack">
+    <section class="surface"><div class="surface-head"><h2>Past searches</h2></div>
+      {% if searches %}<ul class="rows">{% for s in searches %}<li><a class="row-link" href="/leads/{{ s.id }}"><span class="grow"><span class="title">{{ s.niche|capitalize }} in {{ s.location }}</span>
+        <span class="meta"><span>{{ s.result_count }} businesses</span><span>{{ s.created_at|localtime(None, '%b %d') }}</span></span></span></a></li>{% endfor %}</ul>
+      {% else %}{{ ui.empty('search', 'No searches yet') }}{% endif %}
+    </section>
+    <form class="surface" method="post" action="/leads/import" enctype="multipart/form-data">
+      <div class="surface-head"><div><h2>Import a CSV</h2><div class="sub">Columns: name, phone, website, email, address, rating, reviews</div></div></div>
+      <div class="surface-body form-grid">
+        <div class="field full"><label for="f-file">File</label><input id="f-file" type="file" name="file" accept=".csv,text/csv"></div>
+        {{ ui.area('csv_text', 'Or paste rows', placeholder='name,phone,website\nAcme Plumbing,905-555-0100,acmeplumbing.ca', input_cls='code', cls='full') }}
+        {{ ui.field('niche', 'Type of business', 'imported', id='import-niche') }}
+      </div>
+      <div class="surface-foot"><button class="btn" type="submit">Import leads</button></div>
+    </form>
+  </div>
+</div>
+{% endblock %}

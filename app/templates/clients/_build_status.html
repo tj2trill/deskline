@@ -1,0 +1,10 @@
+{% import "_ui.html" as ui with context %}
+<span id="build-status" class="cluster" {% if agent.build_status == 'building' %}data-poll="/clients/{{ client.id }}/build-status"{% else %}data-poll-done{% endif %}>
+  {% if agent.build_status == 'building' %}{{ ui.badge('building', 'Reading website…') }}
+  {% elif agent.build_status == 'error' %}{{ ui.badge('error', 'Build failed') }}<span class="small text-bad">{{ agent.build_error }}</span>
+  {% else %}{{ ui.badge('ready', 'Receptionist ready') }}{% endif %}
+  {% if agent.sync_status == 'ok' %}{{ ui.badge('ok', 'Live on Vapi') }}
+  {% elif agent.sync_status == 'skipped' %}<span title="{{ agent.sync_error or '' }}">{{ ui.badge('skipped', 'Saved locally') }}</span>
+  {% elif agent.sync_status == 'error' %}<span title="{{ agent.sync_error or '' }}">{{ ui.badge('error', 'Vapi sync failed') }}</span>
+  {% endif %}
+</span>

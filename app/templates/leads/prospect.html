@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% import "_ui.html" as ui with context %}
+{% block title %}{{ p.name }} – {{ brand.brand_name }}{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div><a class="back" href="{{ '/leads/' ~ p.search_id if p.search_id else '/leads' }}">{{ ui.icon('back') }}Search results</a>
+    <h1>{{ p.name }} {{ ui.badge(p.status) }}</h1>
+    <div class="meta">
+      {% if p.phone %}<a class="cluster" href="tel:{{ p.phone }}">{{ ui.icon('phone') }}{{ p.phone|phone }}</a>{% endif %}
+      {% if p.website %}<a class="cluster" href="{{ p.website }}" target="_blank" rel="noopener">{{ ui.icon('globe') }}Website</a>{% endif %}
+      {% if p.maps_url %}<a class="cluster" href="{{ p.maps_url }}" target="_blank" rel="noopener">{{ ui.icon('external') }}Google Maps</a>{% endif %}
+      {% if p.address %}<span>{{ p.address }}</span>{% endif %}
+    </div>
+  </div>
+  <div class="stack-s"><span class="small muted">Lead score</span><span class="score" style="font-size:var(--fs-xl)">{{ p.score }}<span class="meter" style="width:90px"><i style="width:{{ p.score }}%"></i></span></span></div>
+</div>
+
+<div class="layout side-main">
+  <div class="stack">
+    <section class="surface"><div class="surface-head"><h2>Why this lead</h2>
+      <form method="post" action="/prospects/{{ p.id }}/enrich"><button class="btn ghost sm" type="submit">{{ ui.icon('refresh') }}{{ 'Re-check' if p.enriched else 'Check' }} website</button></form></div>
+      <ul class="rows">{% for r in p.score_reasons %}<li>{{ ui.lamp('lead') }}<span class="grow small">{{ r }}</span></li>{% else %}<li class="muted small">No signals yet.</li>{% endfor %}</ul>
+      {% if p.rating or p.hours %}<div class="surface-body divided"><dl class="kv">
+        {% if p.rating %}<dt>Rating</dt><dd>{{ p.rating }} from {{ p.review_count or 0 }} reviews</dd>{% endif %}
+        {% if p.signals.get('booking_tools') %}<dt>Booking</dt><dd>{{ p.signals.booking_tools|join(', ') }}</dd>{% endif %}
+        {% if p.signals.get('chat_widgets') %}<dt>Chat</dt><dd>{{ p.signals.chat_widgets|join(', ') }}</dd>{% endif %}
+        {% if p.hours %}<dt>Hours</dt><dd>{% for h in p.hours %}<div>{{ h }}</div>{% endfor %}</dd>{% endif %}
+      </dl></div>{% endif %}
+    </section>
+    <form class="surface" method="post" action="/prospects/{{ p.id }}/update" data-track>
+      <div class="surface-head"><h2>Pipeline</h2></div>
+      <div class="surface-body form-grid">
+        {{ ui.choice('status', 'Stage', [('new','New'),('contacted','Contacted'),('replied','Replied'),('demo','Demo'),('won','Won'),('lost','Lost')], p.status) }}
+        {{ ui.field('email', 'Email', p.email or '', type='email') }}
+        {{ ui.area('notes', 'Notes', p.notes or '', cls='full') }}
+      </div>
+      <div class="surface-foot">{{ ui.save() }}</div>
+    </form>
+    <section class="surface"><div class="surface-head"><div><h2>Live demo</h2><div class="sub">A receptionist trained on their own website, to call in front of them.</div></div></div>
+      <div class="surface-body">
+      {% if client %}<div class="stack-s"><a class="strong" href="/clients/{{ client.id }}">{{ client.name }}</a>
+        {% if client.numbers %}<span>Call <a class="strong" href="tel:{{ client.numbers[0].number }}">{{ client.numbers[0].number|phone }}</a></span>{% else %}<a class="btn sm" href="/clients/{{ client.id }}?tab=phone">Add a phone number</a>{% endif %}</div>
+      {% else %}<form method="post" action="/clients"><input type="hidden" name="website" value="{{ p.website or '' }}"><input type="hidden" name="name" value="{{ p.name }}">
+        <input type="hidden" name="business_phone" value="{{ p.phone or '' }}"><input type="hidden" name="industry" value="{{ p.niche or '' }}">
+        <input type="hidden" name="status" value="demo"><input type="hidden" name="prospect_id" value="{{ p.id }}">
+        <button class="btn primary" type="submit">{{ ui.icon('bot') }}Build demo receptionist</button></form>{% endif %}
+      </div>
+    </section>
+    <section class="surface"><div class="surface-head"><h2>Demo website</h2></div>
+      <div class="surface-body cluster">
+        {% if site %}<a class="btn" href="/s/{{ site.slug }}" target="_blank" rel="noopener">{{ ui.icon('external') }}Open</a><a class="btn" href="/sites/{{ site.id }}">Edit</a>{% endif %}
+        <form class="inline" method="post" action="/prospects/{{ p.id }}/site"><button class="btn" type="submit">{{ 'Rewrite the copy' if site else 'Generate a website for them' }}</button></form>
+      </div>
+    </section>
+  </div>
+  <div class="stack">
+    <section class="surface"><div class="surface-head"><div><h2>Outreach emails</h2><div class="sub">Sent one at a time, with your address and an unsubscribe link.</div></div>
+      <form method="post" action="/prospects/{{ p.id }}/emails/generate"><button class="btn {{ '' if emails else 'primary' }}" type="submit">{{ ui.icon('sparkles') }}{{ 'Rewrite drafts' if emails else 'Write 3 emails' }}</button></form></div>
+      {% if suppressed %}<div class="surface-body"><div class="callout" data-tone="bad">{{ ui.icon('alert') }}<span>{{ p.email }} unsubscribed. Sending is blocked.</span></div></div>
+      {% elif not agency.mailing_address %}<div class="surface-body"><div class="callout" data-tone="bad">{{ ui.icon('alert') }}<span>Add your mailing address in <a href="/settings">Settings</a> before sending. Anti-spam law requires it.</span></div></div>{% endif %}
+      {% if emails %}<ul class="rows">{% for e in emails %}<li class="block">
+        <form method="post" action="/prospects/{{ p.id }}/emails/{{ e.id }}/save" class="stack-s" data-track>
+          <div class="split"><span class="title">Email {{ e.step }}{% if e.send_after_days %}, day {{ e.send_after_days }}{% endif %}</span>{{ ui.badge(e.status, ('Sent ' ~ e.sent_at|localtime(None, '%b %d')) if e.sent_at else e.status|label) }}</div>
+          <div class="field"><label class="sr-only" for="subj-{{ e.id }}">Subject</label><input id="subj-{{ e.id }}" name="subject" value="{{ e.subject }}" {{ 'readonly' if e.status == 'sent' }}></div>
+          <div class="field"><label class="sr-only" for="body-{{ e.id }}">Body</label><textarea id="body-{{ e.id }}" name="body" class="tall" {{ 'readonly' if e.status == 'sent' }}>{{ e.body }}</textarea></div>
+          {% if e.status == 'draft' %}<div class="cluster end-align"><span class="dirty-note">Unsaved changes</span><button class="btn" type="submit">Save draft</button>
+            <button class="btn primary" type="submit" formaction="/prospects/{{ p.id }}/emails/{{ e.id }}/send" {{ 'disabled' if not p.email or suppressed }}>{{ ui.icon('send') }}Send to {{ p.email or 'add an email first' }}</button></div>{% endif %}
+        </form></li>{% endfor %}</ul>
+      {% else %}{{ ui.empty('send', 'No drafts yet', 'Drafts use what the lead finder learned about them. You review every email before it goes out.') }}{% endif %}
+    </section>
+    <form class="surface" method="post" action="/prospects/{{ p.id }}/proposal">
+      <div class="surface-head"><div><h2>Proposal</h2><div class="sub">Ask them how many calls they miss. The ROI is calculated from their answer.</div></div></div>
+      <div class="surface-body form-grid">
+        {{ ui.field('missed_calls_per_week', 'Missed calls a week', 10, type='number') }}
+        {{ ui.field('avg_job_value', 'Average job value ($)', 300, type='number') }}
+        {{ ui.field('close_rate', 'Close rate (0–1)', 0.3, type='number', attrs='step="0.05"') }}
+        {{ ui.field('monthly_price', 'Monthly price ($)', agency.default_monthly_price_cents|dollars, type='number', attrs='step="0.01"') }}
+        {{ ui.field('setup_fee', 'Setup fee ($)', agency.default_setup_fee_cents|dollars, type='number', attrs='step="0.01"') }}
+      </div>
+      {% if proposals %}<ul class="rows divided">{% for pr in proposals %}<li><a class="row-link" href="/proposals/{{ pr.id }}">{{ ui.icon('file') }}<span class="grow"><span class="title">{{ pr.title }}</span><span class="meta"><span>{{ pr.created_at|localtime(None, '%b %d') }}</span></span></span>
+        <span class="end">{% if pr.viewed_at %}{{ ui.badge('ok', 'Viewed ' ~ pr.viewed_at|localtime(None, '%b %d')) }}{% else %}{{ ui.badge('neutral', 'Not opened') }}{% endif %}</span></a></li>{% endfor %}</ul>{% endif %}
+      <div class="surface-foot"><button class="btn" type="submit">{{ ui.icon('file') }}Create proposal</button></div>
+    </form>
+  </div>
+</div>
+{% endblock %}

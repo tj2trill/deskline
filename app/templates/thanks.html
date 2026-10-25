@@ -1,0 +1,11 @@
+{% extends "_standalone.html" %}
+{% block title %}{{ brand.brand_name }}{% endblock %}
+{% block body %}
+{% if cancelled %}
+  <h1 class="title-s">Checkout cancelled</h1>
+  <p class="ink-2 m0">Nothing was charged. Use the same link whenever you're ready.</p>
+{% else %}
+  <h1 class="title-s">You're all set</h1>
+  <p class="ink-2 m0">Your subscription with {{ brand.brand_name }} is active. You'll get a summary after every call and a report every Monday morning.</p>
+{% endif %}
+{% endblock %}

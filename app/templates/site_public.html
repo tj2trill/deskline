@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{{ c.headline }}</title><meta name="description" content="{{ c.subheadline }}">
+<style>
+:root{--c:{{ site.theme_color }};font-family:ui-sans-serif,system-ui,sans-serif;color:#15171a}
+body{margin:0;background:#fff;line-height:1.55}.w{max-width:1040px;margin:0 auto;padding:0 20px}
+header{background:linear-gradient(135deg,var(--c),color-mix(in srgb,var(--c) 55%,#000));color:#fff;padding:72px 0 80px}
+h1{font-size:clamp(30px,5vw,48px);line-height:1.1;margin:0 0 14px}header p{font-size:19px;max-width:640px;opacity:.95}
+.cta{display:inline-block;background:#fff;color:var(--c);font-weight:700;padding:14px 22px;border-radius:10px;text-decoration:none;margin:10px 10px 0 0}
+.cta.alt{background:transparent;color:#fff;border:2px solid rgba(255,255,255,.7)}
+section{padding:56px 0}h2{font-size:26px;margin:0 0 18px}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:16px}
+.card{border:1px solid #e6e8eb;border-radius:12px;padding:18px}.card b{display:block;margin-bottom:6px}.alt-bg{background:#f6f7f9}
+.why{display:flex;flex-wrap:wrap;gap:10px}.why span{background:#fff;border:1px solid #e6e8eb;border-radius:999px;padding:8px 14px;font-weight:600}
+footer{background:#111;color:#bbb;padding:30px 0;font-size:14px}footer a{color:#fff}
+details{border-bottom:1px solid #e6e8eb;padding:12px 0}summary{font-weight:600;cursor:pointer}
+@media (prefers-color-scheme:dark){body{background:#0f1115;color:#e8eaee}.card,.why span,details{border-color:#2a2f38}.alt-bg{background:#151820}.why span{background:#151820}}
+</style>
+{% if c.address %}<script type="application/ld+json">{{ {"@context":"https://schema.org","@type":"LocalBusiness","name":c.headline,"telephone":c.phone,"address":c.address}|tojson }}</script>{% endif %}
+</head><body>
+<header><div class="w">
+  <h1>{{ c.headline }}</h1><p>{{ c.subheadline }}</p>
+  {% if c.phone %}<a class="cta" href="tel:{{ c.phone }}">{{ c.cta_text or 'Call now' }} · {{ c.phone }}</a>{% endif %}
+  {% if c.booking_link %}<a class="cta alt" href="{{ c.booking_link }}">Book online</a>{% endif %}
+</div></header>
+{% if c.services %}<section><div class="w"><h2>Services</h2><div class="grid">{% for s in c.services %}<div class="card"><b>{{ s.name }}</b>{{ s.description }}</div>{% endfor %}</div></div></section>{% endif %}
+<section class="alt-bg"><div class="w"><h2>About us</h2><p style="max-width:720px">{{ c.about }}</p>
+  {% if c.why %}<div class="why">{% for w in c.why %}<span>{{ w }}</span>{% endfor %}</div>{% endif %}</div></section>
+{% if c.reviews %}<section><div class="w"><h2>What customers say</h2><div class="grid">{% for r in c.reviews %}<div class="card">“{{ r.text }}”<br><b style="margin-top:8px">— {{ r.author }}</b></div>{% endfor %}</div></div></section>{% endif %}
+{% if c.faqs %}<section><div class="w"><h2>Questions</h2>{% for f in c.faqs %}<details><summary>{{ f.q }}</summary><p>{{ f.a }}</p></details>{% endfor %}</div></section>{% endif %}
+<section class="alt-bg"><div class="w grid">
+  <div><h2>Contact</h2>{% if c.phone %}<p><a href="tel:{{ c.phone }}">{{ c.phone }}</a> — answered 24/7</p>{% endif %}{% if c.email %}<p>{{ c.email }}</p>{% endif %}{% if c.address %}<p>{{ c.address }}</p>{% endif %}{% if c.service_area %}<p>Serving {{ c.service_area }}</p>{% endif %}</div>
+  {% if c.hours %}<div><h2>Hours</h2>{% for h in c.hours %}<div>{{ h }}</div>{% endfor %}</div>{% endif %}
+</div></section>
+<footer><div class="w">© {{ c.headline }}</div></footer>
+{% if widget %}<script src="{{ widget }}" async></script>{% endif %}
+</body></html>

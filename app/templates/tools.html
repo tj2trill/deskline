@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% import "_ui.html" as ui with context %}
+{% block title %}AI tools – {{ brand.brand_name }}{% endblock %}
+{% block content %}
+{% set field_labels = {'business':'Business name','rating':'Star rating','review':'Review text','industry':'Industry','weeks':'Weeks','platforms':'Platforms','segment':'Who to win back','offer':'Offer','url':'Website','niche':'Type of business','notes':'What you know about them'} %}
+<div class="page-head"><div><h1>AI tools</h1><p class="lede">Extra work you can deliver for clients or use while selling. Nothing is invented: the tools only use what you give them.</p></div></div>
+<nav class="tabs" aria-label="Tools">{% set current = active or tools.keys()|first %}
+{% for key, t in tools.items() %}<a href="/tools?t={{ key }}" {% if key == current %}aria-current="page"{% endif %}>{{ t.title }}</a>{% endfor %}</nav>
+{% set t = tools[current] %}
+<div class="layout side-main">
+  <form class="surface" method="post" action="/tools/{{ current }}">
+    <div class="surface-head"><div><h2>{{ t.title }}</h2><div class="sub">{{ t.desc }}</div></div></div>
+    <div class="surface-body form-grid">{% for f in t.fields %}
+      {% if f in ['review','notes'] %}{{ ui.area(f, field_labels.get(f, f), values.get(f, ''), cls='full') }}
+      {% else %}{{ ui.field(f, field_labels.get(f, f), values.get(f, ''), cls='full' if f == 'url' else '') }}{% endif %}{% endfor %}</div>
+    <div class="surface-foot"><button class="btn primary" type="submit">{{ ui.icon('sparkles') }}Generate</button></div>
+  </form>
+  <section class="surface"><div class="surface-head"><h2>Result</h2>{% if result %}<button type="button" class="btn sm" data-copy="{{ result }}">{{ ui.icon('copy') }}<span>Copy</span></button>{% endif %}</div>
+    {% if result %}<div class="surface-body"><div class="prose pre-wrap">{{ result }}</div></div>
+    {% else %}{{ ui.empty('sparkles', 'Nothing generated yet', 'Fill in the form and the result appears here.') }}{% endif %}</section>
+</div>
+{% endblock %}

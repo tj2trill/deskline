@@ -1,0 +1,38 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: deskline
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-deskline}
+      POSTGRES_DB: deskline
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U deskline"]
+      interval: 5s
+      retries: 10
+    restart: unless-stopped
+
+  app:
+    build: .
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://deskline:${POSTGRES_PASSWORD:-deskline}@db:5432/deskline
+    ports: ["8000:8000"]
+    depends_on:
+      db: { condition: service_healthy }
+    restart: unless-stopped
+
+  # Optional: automatic HTTPS. Point your domain's DNS at this machine, set DOMAIN in .env,
+  # then run:  docker compose --profile https up -d
+  caddy:
+    image: caddy:2
+    profiles: [https]
+    command: caddy reverse-proxy --from ${DOMAIN:-localhost} --to app:8000
+    ports: ["80:80", "443:443"]
+    volumes: [caddy:/data]
+    depends_on: [app]
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  caddy:

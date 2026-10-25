@@ -1,0 +1,300 @@
+{% extends "base.html" %}
+{% import "_ui.html" as ui with context %}
+{% block title %}{{ client.name }} – {{ brand.brand_name }}{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <a class="back" href="/clients">{{ ui.icon('back') }}Clients</a>
+    <h1>{{ client.name }} {{ ui.badge(client.status) }}</h1>
+    <div class="meta">
+      {% if client.industry %}<span>{{ client.industry }}</span>{% endif %}
+      {% if client.website %}<a class="cluster" href="{{ client.website }}" target="_blank" rel="noopener">{{ ui.icon('globe') }}{{ client.website.replace('https://','').replace('http://','').rstrip('/') }}</a>{% endif %}
+      {% for n in client.numbers if n.number %}<span class="cluster">{{ ui.icon('phone') }}{{ n.number|phone }}</span>{% endfor %}
+      {% include "clients/_build_status.html" %}
+    </div>
+  </div>
+  <a class="btn" href="/portal?client_id={{ client.id }}">{{ ui.icon('eye') }}View as owner</a>
+</div>
+
+<nav class="tabs" aria-label="Client sections">
+{% for t, text, n in [('overview','Overview',0),('agent','Receptionist',tab_counts.gaps),('phone','Phone',0),('calls','Calls',0),('inbox','Inbox',tab_counts.inbox),('automations','Automations',0),('widget','Chat and website',0),('billing','Billing and access',0)] %}
+  <a href="?tab={{ t }}" {% if tab == t %}aria-current="page"{% endif %}>{{ text }}{% if n %}<span class="count">{{ n }}</span>{% endif %}</a>{% endfor %}
+</nav>
+
+{% if tab == 'overview' %}
+<div class="stats">
+  <div class="stat"><div class="label">Calls this month</div><div class="value">{{ usage.calls }}</div></div>
+  <div class="stat"><div class="label">Billable minutes</div><div class="value">{{ usage.minutes }}</div><div class="note">{% if client.monthly_minute_cap %}Cap {{ client.monthly_minute_cap }}{% else %}No cap{% endif %}</div></div>
+  <div class="stat"><div class="label">Estimated bill</div><div class="value">{{ estimate|money(0) }}</div><div class="note">{{ pricing_text }}</div></div>
+  <div class="stat"><div class="label">Provider cost</div><div class="value" {% if client.status == 'active' and usage.cost > estimate %}data-tone="bad"{% endif %}>{{ usage.cost|money(0) }}</div></div>
+</div>
+{% if not client.numbers %}<div class="callout" data-tone="brand">{{ ui.icon('phone') }}<span>No phone number yet. <a href="?tab=phone">Add one</a> to start taking calls.</span></div>{% endif %}
+<div class="layout main-side">
+  <section class="surface"><div class="surface-head"><h2>Recent calls</h2><a class="btn ghost sm" href="?tab=calls">All calls</a></div>
+    {{ ui.calls_table(calls, client=client) }}</section>
+  <div class="stack">
+    <section class="surface"><div class="surface-head"><div><h2>Knowledge gaps</h2><div class="sub">Questions callers asked that the receptionist couldn't answer</div></div></div>
+      {% if gaps %}<ul class="rows">{% for g in gaps[:5] %}<li>{{ ui.lamp('message') }}<span class="grow">{{ g.question }}</span><span class="end small muted">{{ g.times_asked }}×</span></li>{% endfor %}</ul>
+        <div class="surface-foot"><a class="btn sm" href="?tab=agent#gaps">Answer them</a></div>
+      {% else %}{{ ui.empty('check', 'Nothing unanswered', 'Unanswered questions from calls will collect here.') }}{% endif %}</section>
+    <section class="surface"><div class="surface-head"><h2>Inbox</h2><a class="btn ghost sm" href="?tab=inbox">Open inbox</a></div>
+      {% if contacts %}<ul class="rows">{% for c in contacts[:5] %}<li>{{ ui.lamp('urgent' if c.urgency == 'urgent' else c.kind) }}
+        <span class="grow"><span class="title">{{ c.name or c.phone|phone }}</span><span class="text clamp-2">{{ c.details or '' }}</span></span>{% if c.status == 'new' %}<span class="end">{{ ui.badge(c.kind) }}</span>{% endif %}</li>{% endfor %}</ul>
+      {% else %}{{ ui.empty('inbox', 'No messages yet', 'Messages, callback requests and new leads land here.') }}{% endif %}</section>
+    <section class="surface"><div class="surface-head"><div><h2>Weekly report</h2><div class="sub">Monday mornings to {{ client.owner_email or 'the owner (add an email first)' }}</div></div>
+      <form class="inline" method="post" action="/clients/{{ client.id }}/report"><button class="btn sm" type="submit">{{ ui.icon('send') }}Send now</button></form></div>
+      {% if client.last_report_at %}<div class="surface-body small muted">Last sent {{ client.last_report_at|localtime(client.timezone) }}</div>{% endif %}</section>
+    {% if events %}<section class="surface"><div class="surface-head"><h2>Activity</h2></div>
+      <ul class="rows">{% for e in events %}<li>{{ ui.lamp('error' if e.level in ['warn','error'] else 'neutral') }}<span class="grow small">{{ e.message }}<span class="meta">{{ e.created_at|localtime }}</span></span></li>{% endfor %}</ul></section>{% endif %}
+  </div>
+</div>
+
+{% elif tab == 'agent' %}
+<div class="layout main-side">
+  <form class="surface" method="post" action="/clients/{{ client.id }}/agent" data-track>
+    <div class="surface-head"><div><h2>Receptionist</h2><div class="sub">What it says and knows. Saving pushes the change to live calls.</div></div></div>
+    <div class="surface-body">
+      <div class="form-grid">
+        {{ ui.field('name', 'Name', agent.name) }}
+        {{ ui.field('language', 'Language', agent.language, hint='en, fr, es… or multi') }}
+        {{ ui.field('voice_provider', 'Voice provider', agent.voice_provider or '', placeholder=settings.vapi_voice_provider, hint='vapi, 11labs or cartesia') }}
+        {{ ui.field('voice_id', 'Voice', agent.voice_id or '', placeholder=settings.vapi_voice_id) }}
+        {{ ui.field('first_message', 'Greeting', agent.first_message or '', cls='full') }}
+        {{ ui.area('custom_instructions', 'Extra instructions', agent.custom_instructions or '', hint='Kept when you re-read the website.', placeholder="Always ask if it's an emergency. We don't do commercial buildings.", cls='full') }}
+        {{ ui.area('knowledge', 'Knowledge', agent.knowledge or '', hint='Taken from the website. Edit freely.', input_cls='tall', cls='full') }}
+      </div>
+      <details class="mt" {{ 'open' if agent.prompt_mode == 'manual' }}>
+        <summary class="small strong">Advanced</summary>
+        <div class="form-grid mt-m">
+          {{ ui.field('llm_model', 'Call model', agent.llm_model or '', placeholder=settings.vapi_model, cls='full') }}
+          <div class="full">{{ ui.switch('prompt_mode', 'Write the full system prompt myself', 'Off: the prompt is rebuilt from the fields above on every save.', agent.prompt_mode == 'manual', 'manual') }}</div>
+          {{ ui.area('system_prompt', 'System prompt', agent.system_prompt or '', input_cls='tall code', cls='full') }}
+        </div>
+      </details>
+    </div>
+    <div class="surface-foot">{{ ui.save() }}</div>
+  </form>
+  <div class="stack">
+    <section class="surface" id="gaps"><div class="surface-head"><div><h2>Knowledge gaps</h2><div class="sub">Answer once and the receptionist knows it on the next call</div></div></div>
+      {% if gaps %}<ul class="rows">{% for g in gaps %}<li class="block">
+        <div class="split"><span class="title">{{ g.question }}</span><span class="small muted">asked {{ g.times_asked }}×</span></div>
+        <form method="post" action="/clients/{{ client.id }}/gaps/{{ g.id }}" class="inline-form tight mt-s">
+          <div class="field"><input name="answer" aria-label="Answer" placeholder="The answer callers should get"></div>
+          <button class="btn primary" name="action" value="answer">Teach</button><button class="btn ghost" name="action" value="ignore">Ignore</button></form></li>{% endfor %}</ul>
+      {% else %}{{ ui.empty('check', 'No open questions', 'They appear after calls where the receptionist did not know the answer.') }}{% endif %}
+      {% if agent.learned_faqs %}<div class="surface-head divided"><h3>Confirmed answers</h3></div>
+        <ul class="rows">{% for f in agent.learned_faqs %}<li><span class="grow"><span class="title">{{ f.q }}</span><span class="text">{{ f.a }}</span></span>
+          <form class="end" method="post" action="/clients/{{ client.id }}/faqs/remove"><input type="hidden" name="index" value="{{ loop.index0 }}"><button class="btn ghost sm icon-only" aria-label="Remove answer" title="Remove">{{ ui.icon('trash') }}</button></form></li>{% endfor %}</ul>{% endif %}
+    </section>
+    <form class="surface" method="post" action="/clients/{{ client.id }}/agent/rebuild">
+      <div class="surface-head"><div><h2>Re-read website</h2><div class="sub">Refreshes the knowledge. Instructions and confirmed answers stay.</div></div></div>
+      <div class="surface-body"><div class="inline-form">{{ ui.field('website', 'Website', client.website or '') }}<button class="btn" type="submit">{{ ui.icon('refresh') }}Re-read</button></div></div>
+    </form>
+    <form class="surface" method="post" action="/clients/{{ client.id }}/hours" data-track>
+      <div class="surface-head"><div><h2>Business hours</h2><div class="sub">{{ client.timezone }}. Used for booking and for spotting after-hours calls.</div></div></div>
+      <div class="surface-body">{{ ui.hours_editor(client.business_hours, days, day_names) }}</div>
+      <div class="surface-foot">{{ ui.save() }}</div>
+    </form>
+    <form class="surface" method="post" action="/clients/{{ client.id }}/booking" data-track>
+      <div class="surface-head"><h2>Booking</h2></div>
+      <div class="surface-body form-grid">
+        {{ ui.choice('booking_mode', 'How appointments are booked', [('internal','Built-in calendar from business hours'),('calcom','Cal.com, their real calendar'),('none','No booking, take callback requests')], client.booking_mode, cls='full') }}
+        {{ ui.field('slot_minutes', 'Slot length (minutes)', client.slot_minutes, type='number') }}
+        {{ ui.field('booking_lead_hours', 'Minimum notice (hours)', client.booking_lead_hours, type='number') }}
+        {{ ui.field('booking_horizon_days', 'Book up to (days ahead)', client.booking_horizon_days, type='number') }}
+        {{ ui.field('calcom_event_type_id', 'Cal.com event type ID', client.calcom_event_type_id or '') }}
+        {{ ui.field('calcom_api_key', 'Cal.com API key', '••••••' if client.calcom_api_key else '', placeholder='cal_live_…', cls='full') }}
+        {{ ui.field('booking_link', 'Online booking link', client.booking_link or '', hint='Texted to callers who ask for it.', cls='full') }}
+      </div>
+      <div class="surface-foot">{{ ui.save() }}</div>
+    </form>
+    <form class="surface" method="post" action="/clients/{{ client.id }}/notifications" data-track>
+      <div class="surface-head"><h2>Alerts and behaviour</h2></div>
+      <div class="surface-body stack-s">
+        {{ ui.switch('notify_email', 'Email the owner after each call', '', client.notify_email) }}
+        {{ ui.switch('notify_sms', 'Text the owner after each call', '', client.notify_sms) }}
+        {{ ui.switch('sms_followup', 'Text callers their booking confirmation', '', client.sms_followup) }}
+        {{ ui.switch('recording_disclosure', 'Say "this call may be recorded"', 'Required where both parties must consent to recording.', client.recording_disclosure) }}
+        {{ ui.switch('owner_can_edit', 'Owner can edit hours and answers', 'From their portal.', client.owner_can_edit) }}
+        <div class="form-grid mt-s">{{ ui.field('notify_min_seconds', 'Skip alerts for calls shorter than (seconds)', client.notify_min_seconds, type='number') }}</div>
+      </div>
+      <div class="surface-foot">{{ ui.save() }}</div>
+    </form>
+  </div>
+</div>
+
+{% elif tab == 'phone' %}
+<div class="layout two">
+  <section class="surface">
+    <div class="surface-head"><h2>Phone numbers</h2></div>
+    {% if client.numbers %}<ul class="rows">{% for n in client.numbers %}<li>{{ ui.lamp('active') }}
+      <span class="grow"><span class="title">{{ n.number|phone if n.number else 'Provisioning…' }}</span><span class="meta"><span>{{ n.provider|label }}</span></span></span>
+      <form class="end" method="post" action="/clients/{{ client.id }}/numbers/{{ n.id }}/release" data-confirm="Calls to {{ n.number|phone }} will stop reaching the receptionist and the number goes back to the provider." data-confirm-title="Release this number?" data-confirm-ok="Release number">
+        <button class="btn danger sm">Release</button></form></li>{% endfor %}</ul>
+    {% else %}{{ ui.empty('phone', 'No number yet', 'Get a new number or bring one from Twilio.') }}{% endif %}
+    <div class="surface-body divided">
+      {% if not vapi_ready %}<div class="callout mb" data-tone="bad">{{ ui.icon('alert') }}<span>Add VAPI_API_KEY to get numbers.</span></div>{% endif %}
+      <form method="post" action="/clients/{{ client.id }}/numbers/buy" class="inline-form">
+        {{ ui.field('area_code', 'Area code', placeholder='512', hint='US numbers from Vapi, free.') }}<button class="btn primary" type="submit">Get a number</button></form>
+      <form method="post" action="/clients/{{ client.id }}/numbers/import" class="inline-form mt">
+        {{ ui.field('number', 'Twilio number', placeholder='+14165550123', hint='For Canada and everywhere else, buy in Twilio and import.', type='tel') }}<button class="btn" type="submit">Import</button></form>
+    </div>
+  </section>
+  <section class="surface">
+    <div class="surface-head"><h2>Go live</h2></div>
+    <div class="surface-body">
+      <ol class="stack-s small steps-list">
+        <li>Set the owner's cell as the <a href="?tab=billing">transfer number</a>. If anything ever fails, calls forward there instead of dropping.</li>
+        <li>Forward the business line to the AI number. "Forward when busy or unanswered" catches overflow; "forward always" makes it the front desk. Most carriers use <b>*72</b> then the number.</li>
+        <li>Or list the AI number on their website and Google profile.</li>
+        <li>Call it yourself, or have it call you.</li>
+      </ol>
+      <form method="post" action="/clients/{{ client.id }}/test-call" class="inline-form mt">
+        {{ ui.field('to', 'Your mobile', type='tel', placeholder='+14165550123') }}<button class="btn" type="submit">{{ ui.icon('phone') }}Call me</button></form>
+    </div>
+  </section>
+</div>
+
+{% elif tab == 'calls' %}
+<section class="surface">{{ ui.calls_table(calls, client=client) }}</section>
+
+{% elif tab == 'inbox' %}
+<div class="layout two">
+  <section class="surface"><div class="surface-head"><h2>Messages and leads</h2></div>
+  {% if contacts %}<ul class="rows">{% for c in contacts %}<li>{{ ui.lamp('urgent' if c.urgency == 'urgent' else c.kind) }}
+    <span class="grow"><span class="title">{{ c.name or 'Unknown caller' }}</span>
+      <span class="text">{{ c.details or '' }}</span>
+      <span class="meta">{{ ui.tel(c.phone) }}{% if c.email %}<span>{{ c.email }}</span>{% endif %}<span>{{ c.source|label }}</span><span>{{ c.created_at|localtime(client.timezone) }}</span></span></span>
+    <span class="end">{% if c.status == 'new' %}<form method="post" action="/clients/{{ client.id }}/contacts/{{ c.id }}/status"><button class="btn sm">{{ ui.icon('check') }}Mark handled</button></form>{% else %}{{ ui.badge('handled') }}{% endif %}</span></li>{% endfor %}</ul>
+  {% else %}{{ ui.empty('inbox', 'Nothing here yet', 'Messages, callback requests and new leads from calls and chat land here.') }}{% endif %}</section>
+  <section class="surface"><div class="surface-head"><h2>Bookings</h2></div>
+  {% if bookings %}<ul class="rows">{% for b in bookings %}<li>{{ ui.lamp('booked' if b.status == 'confirmed' else 'cancelled') }}
+    <span class="grow"><span class="title">{{ b.start_at|localtime(client.timezone, '%a %b %d, %I:%M %p') }}</span>
+      <span class="text">{{ b.name }}{% if b.service %}, {{ b.service }}{% endif %}</span>
+      <span class="meta">{{ ui.tel(b.phone) }}<span>{{ b.provider|label }}</span>{% if b.status != 'confirmed' %}<span>{{ b.status|label }}</span>{% endif %}</span></span>
+    {% if b.status == 'confirmed' %}<form class="end" method="post" action="/clients/{{ client.id }}/bookings/{{ b.id }}/cancel" data-confirm="This only cancels it here. Let the customer know." data-confirm-title="Cancel this booking?" data-confirm-ok="Cancel booking"><button class="btn ghost sm">Cancel</button></form>{% endif %}</li>{% endfor %}</ul>
+  {% else %}{{ ui.empty('calendar', 'No bookings yet', 'Appointments the receptionist books appear here.') }}{% endif %}</section>
+</div>
+
+{% elif tab == 'automations' %}
+<div class="layout two">
+  <section class="surface">
+    <div class="surface-head"><div><h2>Custom actions</h2><div class="sub">Let the receptionist call your own endpoint mid-call: CRM lookups, Zapier, n8n, job status.</div></div></div>
+    {% if functions %}<ul class="rows">{% for f in functions %}<li>{{ ui.lamp('active') }}<span class="grow"><span class="title">{{ f.name }}</span><span class="text">{{ f.description }}</span><span class="meta"><span>{{ f.method }} {{ f.url }}</span></span></span>
+      <form class="end" method="post" action="/clients/{{ client.id }}/functions/{{ f.id }}/delete" data-confirm="The receptionist stops using it on the next call." data-confirm-title="Delete {{ f.name }}?" data-confirm-ok="Delete"><button class="btn ghost sm icon-only" aria-label="Delete">{{ ui.icon('trash') }}</button></form></li>{% endfor %}</ul>{% endif %}
+    <form method="post" action="/clients/{{ client.id }}/functions">
+      <div class="surface-body form-grid{{ ' divided' if functions }}">
+        {{ ui.field('name', 'Name', placeholder='lookup_job_status', required=True) }}
+        {{ ui.choice('method', 'Method', [('POST','POST'),('GET','GET')], 'POST') }}
+        {{ ui.field('description', 'When to use it', placeholder="Look up an existing job by the caller's phone number", required=True, cls='full') }}
+        {{ ui.field('url', 'URL', placeholder='https://hooks.zapier.com/…', required=True, cls='full') }}
+        {{ ui.area('parameters', 'Inputs (JSON Schema properties)', '{"phone": {"type": "string", "description": "Caller phone"}}', input_cls='code', cls='full') }}
+        {{ ui.field('headers', 'Headers (JSON)', placeholder='{"Authorization": "Bearer …"}', cls='full') }}
+        {{ ui.field('speak_while_running', 'Say while it runs', placeholder='Let me pull that up.', cls='full') }}
+      </div>
+      <div class="surface-foot"><button class="btn primary" type="submit">Add action</button></div>
+    </form>
+  </section>
+  <section class="surface"><div class="surface-head"><div><h2>Automations</h2><div class="sub">Rules that run for {{ client.name }} after calls and chats.</div></div></div>
+    {% set scope_client = client.id %}{% include "_workflows.html" %}</section>
+</div>
+
+{% elif tab == 'widget' %}
+<div class="layout two">
+  <section class="surface"><div class="surface-head"><div><h2>Website chat</h2><div class="sub">Same knowledge, booking and lead capture as the phone receptionist.</div></div></div>
+    <div class="surface-body stack-s">
+      <span class="label">Paste before &lt;/body&gt; on their site</span>
+      <div class="codebox">&lt;script src="{{ settings.base_url }}/widget/{{ client.widget_key }}.js" async&gt;&lt;/script&gt;<button type="button" class="btn sm" data-copy='<script src="{{ settings.base_url }}/widget/{{ client.widget_key }}.js" async></script>'>{{ ui.icon('copy') }}<span>Copy</span></button></div>
+    </div>
+    <div class="surface-head divided"><h3>Recent chats</h3></div>
+    {% if chats %}<ul class="rows">{% for s in chats %}<li class="block"><details><summary class="split"><span class="title">{{ s.updated_at|localtime(client.timezone) }}</span><span class="small muted">{{ s.messages|length }} messages</span></summary>
+      <div class="stack-s mt-s">{% for m in s.messages if m.role in ['user','assistant'] and m.content %}<div class="small"><b>{{ 'Visitor' if m.role == 'user' else agent.name }}</b> <span class="ink-2">{{ m.content }}</span></div>{% endfor %}</div></details></li>{% endfor %}</ul>
+    {% else %}{{ ui.empty('chat', 'No chats yet', 'Conversations from the website widget show up here.') }}{% endif %}
+  </section>
+  <section class="surface"><div class="surface-head"><div><h2>Website</h2><div class="sub">A one-page site with click-to-call and the chat built in.</div></div></div>
+    <div class="surface-body cluster">
+      {% if site %}<a class="btn" href="/s/{{ site.slug }}" target="_blank" rel="noopener">{{ ui.icon('external') }}Open site</a><a class="btn" href="/sites/{{ site.id }}">Edit site</a>{% endif %}
+      <form class="inline" method="post" action="/clients/{{ client.id }}/site"><button class="btn {{ '' if site else 'primary' }}" type="submit">{{ 'Rewrite the copy' if site else 'Generate a website' }}</button></form>
+    </div>
+  </section>
+</div>
+
+{% elif tab == 'billing' %}
+<div class="layout two">
+  <div class="stack">
+    <form class="surface" method="post" action="/clients/{{ client.id }}/billing" data-track>
+      <div class="surface-head"><div><h2>Pricing</h2><div class="sub">{{ pricing_text }}</div></div></div>
+      <div class="surface-body form-grid">
+        {{ ui.choice('pricing_model', 'Model', [('flat','Monthly fee with included minutes'),('per_minute','Per minute'),('tiered','Custom tiers')], client.pricing_model, cls='full') }}
+        {{ ui.field('monthly_price', 'Monthly fee ($)', client.monthly_price_cents|dollars, type='number', attrs='step="0.01"') }}
+        {{ ui.field('included_minutes', 'Included minutes', client.included_minutes, type='number') }}
+        {{ ui.field('overage', 'Overage ($ per minute)', client.overage_cents|dollars, type='number', attrs='step="0.01"') }}
+        {{ ui.field('per_minute', 'Per-minute rate ($)', client.per_minute_cents|dollars, type='number', attrs='step="0.01"') }}
+        <div class="field full"><label for="f-tiers">Tiers</label><textarea id="f-tiers" name="tiers" class="code" placeholder="500:0&#10;2000:20&#10;*:15">{% for t in client.tiers %}{{ t.up_to if t.up_to is not none else '*' }}:{{ t.cents }}
+{% endfor %}</textarea><span class="hint">One per line as minutes:cents. * means everything after.</span></div>
+        {{ ui.field('setup_fee', 'Setup fee ($)', client.setup_fee_cents|dollars, type='number', attrs='step="0.01"') }}
+        {{ ui.field('trial_days', 'Free trial (days)', client.trial_days, type='number') }}
+      </div>
+      <div class="surface-foot"><span class="note">Your cost is about {{ settings.est_cost_per_minute_cents|round(1) }}¢ a minute.</span>{{ ui.save() }}</div>
+    </form>
+    <section class="surface"><div class="surface-head"><h2>Subscription</h2>{% if client.stripe_status %}{{ ui.badge(client.stripe_status) }}{% endif %}</div>
+      <div class="surface-body stack-s">
+        {% if not stripe_ready %}<div class="callout" data-tone="bad">{{ ui.icon('alert') }}<span>Add STRIPE_SECRET_KEY to bill clients.</span></div>{% endif %}
+        {% if client.checkout_url %}<span class="label">Checkout link</span>{{ ui.copy_field(client.checkout_url) }}{% endif %}
+        <form method="post" action="/clients/{{ client.id }}/billing/checkout" class="cluster"><button class="btn" name="send" value="">Create checkout link</button><button class="btn primary" name="send" value="1">{{ ui.icon('send') }}Email it to the owner</button></form>
+      </div>
+      <div class="surface-foot"><span class="note">Minutes are reported to Stripe after each call.</span><form method="post" action="/clients/{{ client.id }}/billing/resend-usage"><button class="btn ghost sm" type="submit">Resend unbilled minutes</button></form></div>
+    </section>
+    <form class="surface" method="post" action="/clients/{{ client.id }}/guardrails" data-track>
+      <div class="surface-head"><div><h2>Cost guardrails</h2><div class="sub">{{ minutes_used }} minutes used this month{% if client.cap_tripped_at %}, cap reached {{ client.cap_tripped_at|localtime }}{% endif %}</div></div></div>
+      <div class="surface-body form-grid">
+        {{ ui.field('monthly_minute_cap', 'Monthly minute cap', client.monthly_minute_cap, type='number', hint='0 means no cap.') }}
+        {{ ui.choice('cap_action', 'When the cap is reached', [('alert','Keep answering and alert me'),('forward','Forward calls to the transfer number')], client.cap_action) }}
+        {{ ui.field('avg_job_value', 'Average job value ($)', client.avg_job_value_cents|dollars, type='number', hint='Used to value bookings in weekly reports.') }}
+        <div class="field end-align">{{ ui.switch('report_weekly', 'Weekly report to the owner', '', client.report_weekly) }}</div>
+      </div>
+      <div class="surface-foot">{{ ui.save() }}</div>
+    </form>
+  </div>
+  <div class="stack">
+    <form class="surface" method="post" action="/clients/{{ client.id }}/info" data-track>
+      <div class="surface-head"><h2>Business details</h2></div>
+      <div class="surface-body form-grid">
+        {{ ui.field('name', 'Business name', client.name, required=True, cls='full') }}
+        {{ ui.field('website', 'Website', client.website or '') }}
+        {{ ui.field('industry', 'Industry', client.industry or '') }}
+        {{ ui.field('business_phone', 'Main phone', client.business_phone or '', type='tel') }}
+        {{ ui.field('transfer_number', 'Transfer and fallback number', client.transfer_number or '', type='tel', placeholder='+14165550123', hint="The owner's cell. Urgent calls and failures go here.") }}
+        {{ ui.field('owner_name', 'Owner name', client.owner_name or '') }}
+        {{ ui.field('owner_email', 'Owner email', client.owner_email or '', type='email') }}
+        {{ ui.field('owner_phone', 'Owner mobile', client.owner_phone or '', type='tel') }}
+        {{ ui.field('timezone', 'Timezone', client.timezone) }}
+        {{ ui.field('address', 'Address', client.address or '', cls='full') }}
+        {{ ui.field('service_area', 'Service area', client.service_area or '', cls='full') }}
+        {{ ui.choice('status', 'Status', [('demo','Demo'),('active','Active'),('paused','Paused'),('churned','Churned')], client.status, hint='Paused and churned clients forward calls to the transfer number.') }}
+        {{ ui.area('notes', 'Internal notes', client.notes or '', cls='full') }}
+      </div>
+      <div class="surface-foot">{{ ui.save() }}</div>
+    </form>
+    <section class="surface"><div class="surface-head"><div><h2>Owner portal</h2><div class="sub">Their own login to see calls, bookings and messages, with your branding.</div></div></div>
+      {% if owners %}<ul class="rows">{% for o in owners %}<li><span class="avatar">{{ o.email|initials }}</span><span class="grow"><span class="title">{{ o.email }}</span><span class="meta">{% if o.last_login_at %}Last signed in {{ o.last_login_at|localtime }}{% else %}Hasn't signed in yet{% endif %}</span></span></li>{% endfor %}</ul>{% endif %}
+      <form method="post" action="/clients/{{ client.id }}/owner-login" class="surface-body inline-form{{ ' divided' if owners }}">
+        {{ ui.field('email', 'Owner email', client.owner_email or '', type='email', required=True, id='owner-email') }}<button class="btn" type="submit">Create login and email it</button></form>
+    </section>
+    <form class="surface" method="post" action="/clients/{{ client.id }}/proposal">
+      <div class="surface-head"><div><h2>Proposal</h2><div class="sub">ROI is worked out from these numbers, not guessed.</div></div></div>
+      <div class="surface-body form-grid">
+        {{ ui.field('missed_calls_per_week', 'Missed calls a week', 10, type='number') }}
+        {{ ui.field('avg_job_value', 'Average job value ($)', client.avg_job_value_cents|dollars, type='number', id='p-job') }}
+        {{ ui.field('close_rate', 'Close rate (0–1)', 0.3, type='number', attrs='step="0.05"') }}
+      </div>
+      <div class="surface-foot"><button class="btn" type="submit">{{ ui.icon('file') }}Create proposal</button></div>
+    </form>
+    <form class="surface" method="post" action="/clients/{{ client.id }}/delete" data-confirm="Their numbers are released and all calls, messages and settings are deleted. This can't be undone." data-confirm-title="Delete {{ client.name }}?" data-confirm-ok="Delete client">
+      <div class="surface-head"><h2>Delete client</h2></div>
+      <div class="surface-body inline-form">{{ ui.field('confirm', 'Type "' ~ client.name ~ '" to confirm') }}<button class="btn danger" type="submit">Delete client</button></div>
+    </form>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

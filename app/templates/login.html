@@ -1,0 +1,23 @@
+{% import "_ui.html" as ui with context %}<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sign in to {{ brand.brand_name }}</title>
+<link rel="preload" href="/static/fonts/ibm-plex-sans-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/static/app.css?v=2"><style>:root{--brand:{{ brand.primary_color or '#2b50c8' }}}</style>
+<script src="/static/app.js?v=2" defer></script></head>
+<body>{% include "_icons.html" %}
+<div class="progress" aria-hidden="true"></div>
+<div class="auth"><div class="auth-card">
+  <div class="brand">{% if brand.logo_url %}<img src="{{ brand.logo_url }}" alt="{{ brand.brand_name }}">{% else %}<span class="brand-mark">{{ ui.icon('phone') }}</span>{{ brand.brand_name }}{% endif %}</div>
+  <form class="surface" method="post" action="/login">
+    <div class="surface-body stack">
+      <div><h1 class="title-s">Sign in</h1></div>
+      {% if error %}<div class="callout" data-tone="bad" role="alert">{{ ui.icon('alert') }}<span>{{ error }}</span></div>{% endif %}
+      <input type="hidden" name="next" value="{{ next }}">
+      {{ ui.field('email', 'Email', email or '', type='email', required=True, id='email', attrs='autocomplete="username"' ~ ('' if email else ' autofocus')) }}
+      {{ ui.field('password', 'Password', type='password', required=True, id='password', attrs='autocomplete="current-password"' ~ (' autofocus' if email else '')) }}
+      <button class="btn primary block" type="submit">Sign in</button>
+    </div>
+  </form>
+</div></div>
+<div class="toasts" role="status" aria-live="polite">{% for f in flashes %}<div class="toast" data-tone="{{ 'bad' if f.kind == 'error' else 'good' }}">{{ ui.icon('alert' if f.kind == 'error' else 'check') }}<span>{{ f.message }}</span><button class="toast-close" type="button" aria-label="Dismiss">{{ ui.icon('x') }}</button></div>{% endfor %}</div>
+</body></html>

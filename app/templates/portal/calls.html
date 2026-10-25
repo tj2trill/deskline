@@ -1,0 +1,7 @@
+{% extends "base.html" %}
+{% import "_ui.html" as ui with context %}
+{% block title %}Calls – {{ c.name }}{% endblock %}
+{% block content %}
+<div class="page-head"><div><h1>Calls</h1><p class="lede">Every call your receptionist handled, with recordings and transcripts.</p></div></div>
+<section class="surface">{{ ui.calls_table(calls, client=c, portal=True) }}</section>
+{% endblock %}

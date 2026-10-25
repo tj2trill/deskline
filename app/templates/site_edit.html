@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% import "_ui.html" as ui with context %}
+{% block title %}Edit website – {{ brand.brand_name }}{% endblock %}
+{% block content %}
+{% set c = site.content %}
+<div class="page-head">
+  <div><a class="back" href="{{ '/clients/' ~ site.client_id ~ '?tab=widget' if site.client_id else '/prospects/' ~ site.prospect_id }}">{{ ui.icon('back') }}Back</a>
+    <h1>{{ c.headline or 'Website' }}</h1>
+    <div class="meta"><a class="cluster" href="{{ url }}" target="_blank" rel="noopener">{{ ui.icon('external') }}{{ url.replace('https://','').replace('http://','') }}</a>
+      {% if site.domain %}<span>Also at {{ site.domain }}</span>{% endif %}{{ ui.badge('active' if site.published else 'paused', 'Published' if site.published else 'Hidden') }}</div></div>
+  <a class="btn" href="/s/{{ site.slug }}" target="_blank" rel="noopener">{{ ui.icon('eye') }}Preview</a>
+</div>
+<form class="surface" method="post" action="/sites/{{ site.id }}" data-track>
+  <div class="surface-body">
+    <div class="form-grid">
+      {{ ui.field('headline', 'Headline', c.headline or '', cls='full') }}
+      {{ ui.field('subheadline', 'Subheadline', c.subheadline or '', cls='full') }}
+      {{ ui.area('about', 'About', c.about or '', cls='full') }}
+      <div class="field full"><label for="f-services">Services</label><textarea id="f-services" name="services">{% for s in c.services or [] %}{{ s.name }} | {{ s.description }}
+{% endfor %}</textarea><span class="hint">One per line: name | short description</span></div>
+      <div class="field full"><label for="f-why">Reasons to choose them</label><textarea id="f-why" name="why">{{ (c.why or [])|join('\n') }}</textarea><span class="hint">One per line</span></div>
+      <div class="field full"><label for="f-reviews">Customer reviews</label><textarea id="f-reviews" name="reviews">{% for r in c.reviews or [] %}{{ r.author }} | {{ r.text }}
+{% endfor %}</textarea><span class="hint">Real reviews only, copied from Google. One per line: first name | review</span></div>
+    </div>
+    <h3 class="section-title">Contact and publishing</h3>
+    <div class="form-grid">
+      {{ ui.field('phone', 'Phone shown', c.phone or '', type='tel', hint='Use the AI number so every call gets answered.') }}
+      {{ ui.field('booking_link', 'Booking link', c.booking_link or '') }}
+      <div class="field"><label for="f-theme_color">Colour</label><input id="f-theme_color" name="theme_color" type="color" value="{{ site.theme_color }}"></div>
+      {{ ui.field('domain', 'Custom domain', site.domain or '', placeholder='www.acmeplumbing.ca', hint='Point its DNS at this server first.') }}
+      <div class="field full">{{ ui.switch('published', 'Published', 'Hidden sites return "not found".', site.published) }}</div>
+    </div>
+  </div>
+  <div class="surface-foot">{{ ui.save() }}</div>
+</form>
+{% endblock %}

@@ -1,0 +1,69 @@
+{% import "_ui.html" as ui with context %}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>{% block title %}{{ brand.brand_name }}{% endblock %}</title>
+<link rel="preload" href="/static/fonts/ibm-plex-sans-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/static/app.css?v=4">
+<style>:root{--brand:{{ brand.primary_color or '#2b50c8' }}}</style>
+<meta name="theme-color" content="{{ brand.primary_color or '#2b50c8' }}">
+<script src="/static/app.js?v=2" defer></script>
+</head>
+<body>
+{% include "_icons.html" %}
+{% set path = request.url.path %}
+{% set agency_nav = user and user.is_agency and not path.startswith('/portal') %}
+{% macro navlink(href, icon_name, text, active, count=0) -%}
+<a href="{{ href }}" data-prefetch {% if active %}aria-current="page"{% endif %}>{{ ui.icon(icon_name) }}<span>{{ text }}</span>{% if count %}<span class="count">{{ count }}</span>{% endif %}</a>
+{%- endmacro %}
+<div class="progress" aria-hidden="true"></div>
+<header class="topbar">
+  <button class="btn ghost icon-only" type="button" data-nav-toggle aria-label="Open menu">{{ ui.icon('menu') }}</button>
+  <a class="brand" href="{{ '/' if agency_nav else '/portal' }}">{% if brand.logo_url %}<img src="{{ brand.logo_url }}" alt="{{ brand.brand_name }}">{% else %}<span class="brand-mark">{{ ui.icon('phone') }}</span>{{ brand.brand_name }}{% endif %}</a>
+</header>
+<div class="scrim" data-nav-toggle></div>
+<div class="app">
+  <aside class="rail" aria-label="Main navigation">
+    <a class="brand" href="{{ '/' if agency_nav else '/portal' }}">{% if brand.logo_url %}<img src="{{ brand.logo_url }}" alt="{{ brand.brand_name }}">{% else %}<span class="brand-mark">{{ ui.icon('phone') }}</span>{{ brand.brand_name }}{% endif %}</a>
+    <nav class="nav">
+    {% if agency_nav %}
+      {{ navlink('/', 'dashboard', 'Dashboard', path == '/') }}
+      {{ navlink('/clients', 'building', 'Clients', path.startswith('/clients') or path.startswith('/sites')) }}
+      {{ navlink('/calls', 'phone', 'Calls', path.startswith('/calls'), counts.get('review', 0)) }}
+      {{ navlink('/billing', 'billing', 'Billing', path.startswith('/billing')) }}
+      {{ navlink('/agents', 'bot', 'Agents', path.startswith('/agents'), counts.get('approvals', 0)) }}
+      <div class="nav-group">Growth</div>
+      {{ navlink('/leads', 'search', 'Lead finder', path.startswith('/leads') or path.startswith('/prospects') or path.startswith('/proposals')) }}
+      {{ navlink('/tools', 'sparkles', 'AI tools', path.startswith('/tools')) }}
+      {{ navlink('/automations', 'workflow', 'Automations', path.startswith('/automations')) }}
+      <div class="nav-group">Account</div>
+      {{ navlink('/settings', 'settings', 'Settings', path.startswith('/settings')) }}
+    {% elif user %}
+      {{ navlink('/portal', 'dashboard', 'Overview', path == '/portal') }}
+      {{ navlink('/portal/calls', 'phone', 'Calls', path.startswith('/portal/calls')) }}
+      {{ navlink('/portal/inbox', 'inbox', 'Messages and bookings', path.startswith('/portal/inbox'), counts.get('inbox', 0) if not user.is_agency else 0) }}
+      {{ navlink('/portal/business', 'building', 'Business info', path.startswith('/portal/business')) }}
+      {% if user.is_agency %}<div class="nav-group">Preview mode</div>{{ navlink('/clients', 'back', 'Back to agency', False) }}{% endif %}
+    {% endif %}
+    </nav>
+    {% if user %}
+    <div class="rail-foot">
+      <span class="avatar" aria-hidden="true">{{ (user.name or user.email)|initials }}</span>
+      <div class="grow"><div class="small strong ellipsis">{{ user.name or user.email.split('@')[0] }}</div><div class="xs muted">{{ 'Owner' if user.role == 'owner' else user.role|capitalize }}</div></div>
+      <form method="post" action="/logout" data-hard><button class="btn ghost sm icon-only" type="submit" title="Sign out" aria-label="Sign out">{{ ui.icon('logout') }}</button></form>
+    </div>
+    {% endif %}
+  </aside>
+  <main class="main" id="main" tabindex="-1">
+    <div class="main-inner">{% block content %}{% endblock %}</div>
+  </main>
+</div>
+<div class="toasts" role="status" aria-live="polite">
+{% for f in flashes %}<div class="toast" data-tone="{{ 'bad' if f.kind == 'error' else 'good' }}">{{ ui.icon('alert' if f.kind == 'error' else 'check') }}<span>{{ f.message }}</span>
+  <button class="toast-close" type="button" aria-label="Dismiss">{{ ui.icon('x') }}</button></div>{% endfor %}
+</div>
+<dialog class="confirm" id="confirm-dialog"><form method="dialog"><div class="dialog-body"><h2 data-confirm-title>Are you sure?</h2><p data-confirm-text></p></div>
+<div class="surface-foot"><button class="btn" value="cancel">Cancel</button><button class="btn danger solid" value="ok" data-confirm-ok>Confirm</button></div></form></dialog>
+{% block scripts %}{% endblock %}
+</body>
+</html>

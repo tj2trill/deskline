@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% import "_ui.html" as ui with context %}
+{% block title %}Office – {{ brand.brand_name }}{% endblock %}
+{% block content %}
+<div class="office-page" data-office>
+  <div class="page-head">
+    <div><h1>Office</h1>
+      <p class="lede">Your agents at work. Click anyone to see what they're doing, approve what they need, or change how they work.</p></div>
+    <div class="cluster">
+      <a class="btn" href="/agents">{{ ui.icon('list') }}List view</a>
+      <button class="btn" type="button" data-office-switch>{{ 'Pause all agents' if snap.enabled else 'Resume all agents' }}</button>
+    </div>
+  </div>
+
+  <div class="office-next callout" data-office-next data-tone="{{ 'bad' if snap.next_step.tone == 'bad' else 'brand' }}">
+    {{ ui.icon('sparkles') }}<span class="grow" data-text>{{ snap.next_step.text }}</span>
+  </div>
+
+  <div class="stats office-hud" data-office-hud>
+    <div class="stat"><div class="label">Billable this month</div><div class="value" data-k="billable_month">{{ snap.money.billable_month|money(0) }}</div><div class="note" data-k="billable_note"></div></div>
+    <div class="stat"><div class="label">Collected, 30 days</div><div class="value" data-k="collected_30d">{{ snap.money.collected_30d|money(0) }}</div><div class="note" data-k="mrr_note"></div></div>
+    <div class="stat"><div class="label">Calls today</div><div class="value" data-k="calls_today">{{ snap.money.calls_today }}</div><div class="note" data-k="calls_note"></div></div>
+    <div class="stat"><div class="label">Pipeline</div><div class="value" data-k="pipeline_total">{{ snap.money.pipeline.values()|sum }}</div><div class="note" data-k="pipeline_note"></div></div>
+  </div>
+
+  <div class="office-stage" data-office-stage>
+    <canvas class="office-canvas" role="img" aria-label="Office building with your agents. Use the team list below to open an agent."></canvas>
+    <div class="office-loading muted small" data-office-loading>Opening the office…</div>
+  </div>
+
+  <div class="office-roster" data-office-roster role="list" aria-label="Team"></div>
+
+  <aside class="office-panel" data-office-panel hidden aria-labelledby="office-panel-title" tabindex="-1">
+    <div class="office-panel-head">
+      <canvas class="office-portrait" width="16" height="22" aria-hidden="true"></canvas>
+      <div class="grow"><h2 id="office-panel-title" data-panel-title></h2><div class="small muted" data-panel-sub></div></div>
+      <button class="btn ghost icon-only" type="button" data-panel-close aria-label="Close">{{ ui.icon('x') }}</button>
+    </div>
+    <div class="office-panel-body" data-panel-body></div>
+  </aside>
+
+  <noscript><div class="callout">{{ ui.icon('alert') }}<span>The office needs JavaScript. <a href="/agents">Open the list view</a> instead.</span></div></noscript>
+  <script type="application/json" data-office-snapshot>{{ snap|tojson }}</script>
+</div>
+<script src="/static/office.js?v=3"></script>
+{% endblock %}
