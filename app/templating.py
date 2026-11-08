@@ -70,6 +70,11 @@ TONES = {
     "wait": ["message", "callback", "demo", "building", "contacted", "pending", "skipped", "past_due", "normal", "warn"],
     "bad": ["missed", "error", "paused", "churned", "lost", "negative", "cancelled", "canceled", "urgent", "unpaid", "review", "failed"],
 }
+TONES["good"] += ["accepted", "deposit_paid", "scheduled", "recovered"]
+TONES["lead"] += ["qualified"]
+TONES["transfer"] += ["engaged", "handed_off"]
+TONES["wait"] += ["texted", "open", "deposit_requested", "no_response", "stale", "due"]
+TONES["bad"] += ["emergency", "opted_out", "declined", "disputed", "overdue"]
 TONE_OF = {v: t for t, vals in TONES.items() for v in vals}
 LABELS = {
     "info": "Answered", "missed": "Missed", "booked": "Booked", "transferred": "Transferred", "message": "Message taken",
@@ -77,7 +82,11 @@ LABELS = {
     "skipped": "Local only", "ok": "Synced", "never": "Not synced", "error": "Error", "ready": "Ready", "building": "Building",
     "pending": "Pending", "ringing": "Ringing", "in-progress": "Live", "ended": "Ended", "calcom": "Cal.com",
     "internal": "Built-in", "none": "Off", "vapi": "Vapi", "twilio": "Twilio", "chat": "Website chat", "call": "Phone call",
-    "site": "Website",
+    "site": "Website", "sms": "Text",
+    "texted": "Texted", "engaged": "Replied", "qualified": "Qualified", "handed_off": "With owner",
+    "no_reply": "No reply", "opted_out": "Opted out", "emergency": "Emergency", "deposit_requested": "Deposit requested",
+    "deposit_paid": "Deposit paid", "no_response": "No response", "stale": "Too old to chase", "missed_call": "Missed call",
+    "open": "Open", "disputed": "Disputed", "overdue": "Overdue", "due": "Due",
 }
 
 

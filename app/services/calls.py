@@ -359,6 +359,11 @@ def process_end_of_call(db: Session, msg: dict) -> Call | None:
     workflows.run(db, "call_ended", client, ctx)
     if call.outcome == "missed":
         workflows.run(db, "missed_call", client, ctx)
+        if client.recovery_enabled:  # hung up on the receptionist: pick the conversation up by text
+            from . import recovery
+
+            if recovery.recovery_number(client):
+                recovery.start_missed_call(db, client, call.from_number, origin="vapi_missed")
     try:
         billing.report_usage(db, client, call, agency(db))
     except Exception as e:  # never lose the call record over a billing hiccup; it's retryable from the UI
