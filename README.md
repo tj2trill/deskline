@@ -117,6 +117,10 @@ app/
     provisioning.py  create client, buy number, checkout, owner login (shared by UI and agents)
     learning.py      the learning loop: facts → posteriors → verdicts, target/angle choice, proposals
     replies.py       inbound replies → typed intent + confidence → applied or handed to you
+    recovery.py      revenue recovery core: sending, opt-outs, reply routing, claims ledger, stats, scheduler tick
+    textback.py      missed call → text conversation → qualified lead → booking / emergency escalation
+    sequences.py     quote follow-ups + deposits, invoice reminders, reply intents, CSV import
+    twilio.py        webhook signatures, TwiML, buying/connecting recovery numbers
   agents/            base (modes, act/dedupe), runner (locks, isolation), team (10 agents), actions
                      (executors), registry (knobs), office (live snapshot for the Office view)
   routers/           clients (agency), growth, portal (owners), public, webhooks, settings
@@ -126,7 +130,7 @@ app/
   static/app.js      soft navigation and small enhancements (see below); no build step
   static/office.js   the Office: canvas pixel-art building, sprites, bubbles, panels (no dependencies)
   static/fonts/      IBM Plex Sans (OFL), bundled so nothing loads from a CDN
-tests/               44 tests with a fake internet (crawled site, OpenAI, Vapi, Stripe, Twilio, Places)
+tests/               74 tests with a fake internet (crawled site, OpenAI, Vapi, Stripe, Twilio, Places)
 ```
 
 ## Interface
@@ -138,6 +142,36 @@ tests/               44 tests with a fake internet (crawled site, OpenAI, Vapi, 
 
 Run tests: `pip install pytest && pytest -q` (SQLite) or
 `TEST_DATABASE_URL=postgresql+psycopg://user:pass@localhost/db_test pytest -q` (Postgres).
+
+## Revenue recovery (missed calls → quotes → invoices)
+
+Sells on its own (no AI voice needed) or alongside the receptionist. Client → **Recovery** tab to set up; owners
+see **Revenue recovery** in their portal.
+
+| Leak | What happens | Counted as recovered when |
+|---|---|---|
+| Missed call | Text within seconds → asks job, address/name, urgency, optional photo → offers 3 times → books (built-in calendar or Cal.com). Emergencies (flooding, sparking, gas…) skip straight to an urgent owner text. | The caller booked by text. Counted at avg job value as an **estimate** until the owner enters the real value. |
+| Quote | Follow-ups on days 1/3/7/14 (send window only), stop on any reply. "Yes, go ahead" accepts and requests the deposit; anything else goes to the owner verbatim. | Accepted after ≥1 follow-up. Voided if it falls through. |
+| Invoice | Reminders at −3/0/3/7/14 days vs due; only the reminder that fits today is sent (no bursts after an import). At 21 days late it's handed to the owner. "Paid"/"e-transfer sent" pauses and asks the owner to confirm. | Paid after an overdue reminder. Paid on time after a reminder is shown as "collected on time" but never fee-eligible. |
+
+The **performance fee** (% per client) is charged only on confirmed, fee-eligible amounts in `recovery_events`;
+estimates never count. Each claim is one row keyed by what it's about, so nothing is double-counted.
+
+**Missed-call detection.** Each client gets a Twilio number (buy in-app by area code, or connect one).
+*Forward* mode: the owner turns on conditional forwarding (no answer/busy) to it, so every call that lands is a
+missed call. *Ring* mode: it is the business line; it rings the owner and they press 1 to take the call. Without
+that screen, a voicemail pickup looks "answered" to Twilio and the miss is never recovered. Calls that hang up
+on the AI receptionist (outcome *missed*) also get a text when recovery is on.
+
+**Design notes.** The conversation is a state machine with fixed reply templates; the LLM (optional) only extracts
+fields, so it never quotes prices or invents times. Twilio webhooks are signature-checked against `BASE_URL`
+(set it to the exact public URL Twilio calls). STOP/START/HELP are honoured and opt-outs stop every sequence;
+Twilio's error 21610 also marks an opt-out. The **Try it** panel simulates a missed call and replies with no
+Twilio account, which is handy in a demo.
+
+**Compliance (not legal advice).** Texts identify the business and the first one carries "Reply STOP to opt out".
+Text-back answers someone who just called; quote follow-ups and invoice reminders go to existing customers. Check
+CASL implied-consent rules for your use, and Twilio's Canadian/US sender registration before sending at volume.
 
 ## Agents (the business runs itself, within your limits)
 

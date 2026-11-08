@@ -41,6 +41,7 @@
     {% elif user %}
       {{ navlink('/portal', 'dashboard', 'Overview', path == '/portal') }}
       {{ navlink('/portal/calls', 'phone', 'Calls', path.startswith('/portal/calls')) }}
+      {{ navlink('/portal/recovery', 'billing', 'Revenue recovery', path.startswith('/portal/recovery')) }}
       {{ navlink('/portal/inbox', 'inbox', 'Messages and bookings', path.startswith('/portal/inbox'), counts.get('inbox', 0) if not user.is_agency else 0) }}
       {{ navlink('/portal/business', 'building', 'Business info', path.startswith('/portal/business')) }}
       {% if user.is_agency %}<div class="nav-group">Preview mode</div>{{ navlink('/clients', 'back', 'Back to agency', False) }}{% endif %}

@@ -146,12 +146,37 @@ class Client(Base):
     avg_job_value_cents: Mapped[int] = mapped_column(Integer, default=25000)
     last_report_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
+    # Revenue recovery (missed-call text-back, quote follow-up, invoice reminders). See services/recovery.py.
+    recovery_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    # forward = the owner's carrier forwards unanswered calls to the recovery number (every call that lands is missed)
+    # ring    = the recovery number IS the business line; it rings the owner first and screens for voicemail
+    missed_call_mode: Mapped[str] = mapped_column(String(10), default="forward")
+    ring_seconds: Mapped[int] = mapped_column(Integer, default=20)
+    textback_opener: Mapped[str | None] = mapped_column(Text)  # blank = built-in opener
+    ask_photos: Mapped[bool] = mapped_column(Boolean, default=True)
+    quote_followup_days: Mapped[list] = mapped_column(JSON, default=lambda: [1, 3, 7, 14])
+    quote_max_age_days: Mapped[int] = mapped_column(Integer, default=60)  # older imported quotes aren't contacted
+    invoice_reminder_days: Mapped[list] = mapped_column(JSON, default=lambda: [-3, 0, 3, 7, 14])
+    invoice_escalate_days: Mapped[int] = mapped_column(Integer, default=21)  # hand to the owner, stop automated texts
+    default_deposit_cents: Mapped[int] = mapped_column(Integer, default=0)
+    deposit_link: Mapped[str | None] = mapped_column(String(500))
+    payment_instructions: Mapped[str | None] = mapped_column(String(300))  # e.g. "e-Transfer to pay@maple.ca"
+    send_window_start: Mapped[str] = mapped_column(String(5), default="08:30")  # follow-ups/reminders only
+    send_window_end: Mapped[str] = mapped_column(String(5), default="19:30")
+    performance_fee_pct: Mapped[float] = mapped_column(Float, default=0)
+
     notes: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
     agents: Mapped[list[Agent]] = relationship(back_populates="client", cascade="all, delete-orphan")
-    numbers: Mapped[list[PhoneNumber]] = relationship(back_populates="client", cascade="all, delete-orphan")
+    # Receptionist (Vapi) numbers only: every existing screen treats client.numbers as "the AI line".
+    numbers: Mapped[list[PhoneNumber]] = relationship(
+        primaryjoin="and_(Client.id == PhoneNumber.client_id, PhoneNumber.purpose != 'recovery')",
+        back_populates="client", cascade="all, delete-orphan")
+    # Recovery (Twilio) numbers; rows are added/removed directly, the DB cascade cleans up with the client.
+    recovery_numbers: Mapped[list[PhoneNumber]] = relationship(
+        primaryjoin="and_(Client.id == PhoneNumber.client_id, PhoneNumber.purpose == 'recovery')", viewonly=True)
 
     @property
     def agent(self) -> Agent | None:
@@ -194,6 +219,8 @@ class PhoneNumber(Base):
     provider: Mapped[str] = mapped_column(String(20), default="vapi")  # vapi | twilio
     vapi_id: Mapped[str | None] = mapped_column(String(80), index=True)
     label: Mapped[str | None] = mapped_column(String(80))
+    purpose: Mapped[str] = mapped_column(String(12), default="receptionist")  # receptionist | recovery
+    twilio_sid: Mapped[str | None] = mapped_column(String(40))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
     client: Mapped[Client] = relationship(back_populates="numbers")
@@ -523,3 +550,144 @@ class Lesson(Base):
     first_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     changed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+# ====================================================================== revenue recovery
+#
+# The three leaks between the phone call and the payment: missed calls, quotes nobody follows up,
+# invoices paid late. Every customer-facing text lives in sms_messages; every dollar the system
+# claims credit for lives in recovery_events (one row per thing, so nothing is double-counted).
+
+
+class RecoveryCall(Base):
+    """A call that reached a recovery number (Twilio). In 'ring' mode answered calls are recorded too,
+    so the funnel can start at total calls rather than at missed calls."""
+
+    __tablename__ = "recovery_calls"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    client_id: Mapped[int] = mapped_column(ForeignKey("clients.id", ondelete="CASCADE"), index=True)
+    call_sid: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    from_number: Mapped[str | None] = mapped_column(String(40))
+    to_number: Mapped[str | None] = mapped_column(String(40))
+    mode: Mapped[str] = mapped_column(String(10), default="forward")  # forward | ring | vapi
+    answered: Mapped[bool] = mapped_column(Boolean, default=False)
+    screened_ok: Mapped[bool] = mapped_column(Boolean, default=False)  # owner pressed 1 (a human, not voicemail)
+    dial_status: Mapped[str | None] = mapped_column(String(20))
+    thread_id: Mapped[int | None] = mapped_column(ForeignKey("sms_threads.id", ondelete="SET NULL"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+
+
+class SmsThread(Base):
+    """One conversation with one customer about one thing (a missed call, a quote, an invoice)."""
+
+    __tablename__ = "sms_threads"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    client_id: Mapped[int] = mapped_column(ForeignKey("clients.id", ondelete="CASCADE"), index=True)
+    phone: Mapped[str] = mapped_column(String(40), index=True)
+    kind: Mapped[str] = mapped_column(String(12), default="missed_call")  # missed_call | quote | invoice
+    # missed_call: texted → engaged → qualified → booked | emergency | handed_off | no_reply | closed | opted_out
+    status: Mapped[str] = mapped_column(String(12), default="texted")
+    step: Mapped[str | None] = mapped_column(String(20))  # what we asked last (slot being filled)
+    data: Mapped[dict] = mapped_column(JSON, default=dict)  # service, address, name, urgency, photos, offered…
+    quote_id: Mapped[int | None] = mapped_column(ForeignKey("quotes.id", ondelete="SET NULL"))
+    invoice_id: Mapped[int | None] = mapped_column(ForeignKey("invoices.id", ondelete="SET NULL"))
+    booking_id: Mapped[int | None] = mapped_column(ForeignKey("bookings.id", ondelete="SET NULL"))
+    contact_id: Mapped[int | None] = mapped_column(ForeignKey("contacts.id", ondelete="SET NULL"))
+    nudged: Mapped[bool] = mapped_column(Boolean, default=False)
+    last_inbound_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_outbound_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
+class SmsMessage(Base):
+    __tablename__ = "sms_messages"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    client_id: Mapped[int] = mapped_column(ForeignKey("clients.id", ondelete="CASCADE"), index=True)
+    thread_id: Mapped[int | None] = mapped_column(ForeignKey("sms_threads.id", ondelete="CASCADE"), index=True)
+    direction: Mapped[str] = mapped_column(String(3))  # in | out
+    body: Mapped[str] = mapped_column(Text, default="")
+    media: Mapped[list] = mapped_column(JSON, default=list)
+    sid: Mapped[str | None] = mapped_column(String(64), unique=True)  # Twilio MessageSid: makes webhook retries idempotent
+    status: Mapped[str] = mapped_column(String(12), default="sent")  # sent | console | failed | received
+    error: Mapped[str | None] = mapped_column(String(300))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+
+
+class SmsOptOut(Base):
+    __tablename__ = "sms_optouts"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    client_id: Mapped[int] = mapped_column(ForeignKey("clients.id", ondelete="CASCADE"), index=True)
+    phone: Mapped[str] = mapped_column(String(40), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class Quote(Base):
+    __tablename__ = "quotes"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    client_id: Mapped[int] = mapped_column(ForeignKey("clients.id", ondelete="CASCADE"), index=True)
+    ref: Mapped[str | None] = mapped_column(String(60))  # the contractor's own quote number
+    customer_name: Mapped[str | None] = mapped_column(String(160))
+    phone: Mapped[str | None] = mapped_column(String(40))
+    email: Mapped[str | None] = mapped_column(String(200))
+    description: Mapped[str] = mapped_column(String(300), default="your project")
+    amount_cents: Mapped[int] = mapped_column(Integer, default=0)
+    sent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    sequence_start: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    # open → (replied) → accepted → deposit_requested → deposit_paid → scheduled | declined | no_response | stale | lost
+    status: Mapped[str] = mapped_column(String(18), default="open", index=True)
+    followups_sent: Mapped[int] = mapped_column(Integer, default=0)
+    next_touch_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    last_touch_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    replied_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_reply: Mapped[str | None] = mapped_column(Text)
+    accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    deposit_cents: Mapped[int] = mapped_column(Integer, default=0)
+    deposit_requested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    deposit_paid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    scheduled_for: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    paused: Mapped[bool] = mapped_column(Boolean, default=False)  # owner is handling it personally
+    source: Mapped[str] = mapped_column(String(10), default="manual")  # manual | csv
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+
+
+class Invoice(Base):
+    __tablename__ = "invoices"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    client_id: Mapped[int] = mapped_column(ForeignKey("clients.id", ondelete="CASCADE"), index=True)
+    number: Mapped[str | None] = mapped_column(String(60))
+    customer_name: Mapped[str | None] = mapped_column(String(160))
+    phone: Mapped[str | None] = mapped_column(String(40))
+    email: Mapped[str | None] = mapped_column(String(200))
+    amount_cents: Mapped[int] = mapped_column(Integer, default=0)
+    due_date: Mapped[datetime] = mapped_column(DateTime(timezone=True))  # midnight local of the due day, stored UTC
+    payment_link: Mapped[str | None] = mapped_column(String(500))
+    status: Mapped[str] = mapped_column(String(12), default="open", index=True)  # open | paid | void | disputed
+    reminders_sent: Mapped[list] = mapped_column(JSON, default=list)  # offsets (days vs due) already handled
+    last_touch_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    customer_says_paid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_reply: Mapped[str | None] = mapped_column(Text)
+    escalated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    paused: Mapped[bool] = mapped_column(Boolean, default=False)
+    paid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    paid_cents: Mapped[int] = mapped_column(Integer, default=0)
+    source: Mapped[str] = mapped_column(String(10), default="manual")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+
+
+class RecoveryEvent(Base):
+    """The ledger of money the system claims credit for. `confirmed` amounts come from the contractor's own
+    numbers (quote total, invoice paid, job value they entered); unconfirmed ones are estimates
+    (avg job value) and never count toward a performance fee."""
+
+    __tablename__ = "recovery_events"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    client_id: Mapped[int] = mapped_column(ForeignKey("clients.id", ondelete="CASCADE"), index=True)
+    kind: Mapped[str] = mapped_column(String(24))  # missed_call_booked | quote_recovered | invoice_recovered | invoice_on_time
+    ref: Mapped[str] = mapped_column(String(40), unique=True)  # e.g. "thread:12" — one claim per thing
+    amount_cents: Mapped[int] = mapped_column(Integer, default=0)
+    confirmed: Mapped[bool] = mapped_column(Boolean, default=False)
+    fee_eligible: Mapped[bool] = mapped_column(Boolean, default=False)
+    void: Mapped[bool] = mapped_column(Boolean, default=False)
+    note: Mapped[str | None] = mapped_column(String(300))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)

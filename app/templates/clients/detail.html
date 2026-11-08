@@ -17,7 +17,7 @@
 </div>
 
 <nav class="tabs" aria-label="Client sections">
-{% for t, text, n in [('overview','Overview',0),('agent','Receptionist',tab_counts.gaps),('phone','Phone',0),('calls','Calls',0),('inbox','Inbox',tab_counts.inbox),('automations','Automations',0),('widget','Chat and website',0),('billing','Billing and access',0)] %}
+{% for t, text, n in [('overview','Overview',0),('agent','Receptionist',tab_counts.gaps),('phone','Phone',0),('recovery','Recovery',0),('calls','Calls',0),('inbox','Inbox',tab_counts.inbox),('automations','Automations',0),('widget','Chat and website',0),('billing','Billing and access',0)] %}
   <a href="?tab={{ t }}" {% if tab == t %}aria-current="page"{% endif %}>{{ text }}{% if n %}<span class="count">{{ n }}</span>{% endif %}</a>{% endfor %}
 </nav>
 
@@ -154,6 +154,9 @@
     </div>
   </section>
 </div>
+
+{% elif tab == 'recovery' %}
+{% include "clients/_recovery.html" %}
 
 {% elif tab == 'calls' %}
 <section class="surface">{{ ui.calls_table(calls, client=client) }}</section>

@@ -162,6 +162,16 @@ def client_detail(request: Request, client_id: int, tab: str = "overview", db: S
     if tab == "overview":
         ctx["events"] = db.scalars(select(EventLog).where(EventLog.client_id == client.id)
                                    .order_by(EventLog.created_at.desc()).limit(8)).all()
+    if tab == "recovery":
+        from ..models import SmsThread
+        from ..services import recovery, twilio
+
+        ctx["rs"] = recovery.stats(db, client)
+        ctx["rnum"] = recovery.recovery_number(client)
+        ctx["twilio_ready"] = twilio.configured()
+        ctx["threads"] = db.scalars(select(SmsThread).where(SmsThread.client_id == client.id)
+                                    .order_by(SmsThread.updated_at.desc()).limit(10)).all()
+        ctx["hook_urls"] = twilio.hook_urls()
     ctx["vapi_ready"] = vapi.configured()
     ctx["stripe_ready"] = billing.configured()
     ctx["tab_counts"] = {
