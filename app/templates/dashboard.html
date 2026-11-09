@@ -8,6 +8,19 @@
   <div class="cluster"><a class="btn" href="/leads">{{ ui.icon('search') }}Find leads</a><a class="btn primary" href="/clients/new">{{ ui.icon('plus') }}New client</a></div>
 </div>
 
+{% if not rows %}
+<section class="surface onboard" aria-labelledby="h-start">
+  <div class="surface-body">
+    <h2 id="h-start">Three steps to your first live receptionist</h2>
+    <p class="muted">You can do all of this without any API keys. Everything runs in a local test mode until you connect them in Settings.</p>
+    <ol class="steps-cards">
+      <li><span class="n">1</span><b>Build a receptionist</b><span>Paste a business website. It reads the site and writes the greeting, services, hours and answers.</span><a class="btn primary" href="/clients/new">{{ ui.icon('plus') }}New client</a></li>
+      <li><span class="n">2</span><b>Give it a phone number</b><span>Add a number on the client's Phone tab, then call it to hear it answer.</span><a class="btn" href="/settings">Connect Vapi in Settings</a></li>
+      <li><span class="n">3</span><b>Find businesses to pitch</b><span>Search a trade and a city. Leads are scored by how many calls they likely miss.</span><a class="btn" href="/leads">{{ ui.icon('search') }}Find leads</a></li>
+    </ol>
+  </div>
+</section>
+{% else %}
 <div class="stats" role="list" aria-label="Key numbers">
   <div class="stat" role="listitem"><div class="label">{{ ui.icon('billing') }}Billable this month</div><div class="value">{{ totals.revenue|money(0) }}</div>
     <div class="note">{{ active }} active client{{ 's' if active != 1 }}, {{ demos }} in demo</div></div>
@@ -21,14 +34,17 @@
     <div class="note">{% if act.answer_rate is not none %}{{ act.answer_rate }}% of real calls answered{% else %}Last 30 days{% endif %}</div></div>
 </div>
 
+{% endif %}
+{% if rows %}
 <div class="layout main-side">
   <section class="surface" aria-labelledby="h-volume">
     <div class="surface-head"><div><h2 id="h-volume">Call volume</h2><div class="sub">Calls per day across all clients, last 30 days</div></div><a class="btn ghost sm" href="/calls">All calls</a></div>
     {% if act.total %}
     <div class="chart">
-      <div class="chart-plot" role="img" aria-label="Bar chart of calls per day for the last 30 days. {{ act.total }} calls in total, busiest day {{ act.peak }}.">
+      <p class="sr-only">Bar chart of calls per day for the last 30 days. {{ act.total }} calls in total, busiest day {{ act.peak }}. The same numbers are in the table below the chart.</p>
+      <div class="chart-plot">
         <div class="chart-y" aria-hidden="true"><span>{{ act.top }}</span><span>{{ (act.top / 2)|int }}</span><span>0</span></div>
-        <div class="chart-bars">{% for d in act.days %}<span class="day{{ ' today' if d.date == act.today }}" tabindex="0" data-n="{{ d.calls }}" style="--h:{{ (d.calls / act.top * 100)|round(1) }}%"
+        <div class="chart-bars" role="group" aria-label="Days. Use the left and right arrow keys to read each one.">{% for d in act.days %}<span class="day{{ ' today' if d.date == act.today }}" tabindex="{{ 0 if loop.last else -1 }}" role="img" aria-label="{{ d.weekday }}, {{ d.label }}: {{ d.calls }} call{{ 's' if d.calls != 1 }}{% if d.booked %}, {{ d.booked }} booked{% endif %}" data-n="{{ d.calls }}" style="--h:{{ (d.calls / act.top * 100)|round(1) }}%"
           data-tip="{{ d.weekday }}, {{ d.label }}" data-tip-sub="{{ d.calls }} call{{ 's' if d.calls != 1 }}{% if d.booked %}, {{ d.booked }} booked{% endif %}"><i></i></span>{% endfor %}</div>
         <div class="chart-x" aria-hidden="true"><span>{{ act.days[0].label }}</span><span>{{ act.days[10].label }}</span><span>{{ act.days[20].label }}</span><span>Today</span></div>
       </div>
@@ -81,4 +97,5 @@
     </section>
   </div>
 </div>
+{% endif %}
 {% endblock %}

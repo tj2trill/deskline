@@ -7,7 +7,7 @@
 <script src="/static/app.js?v={{ asset_v }}" defer></script></head>
 <body>{% include "_icons.html" %}
 <div class="progress" aria-hidden="true"></div>
-<div class="auth"><div class="auth-card">
+<main class="auth"><div class="auth-card">
   <div class="brand">{% if brand.logo_url %}<img src="{{ brand.logo_url|safe_url }}" alt="{{ brand.brand_name }}">{% else %}<span class="brand-mark">{{ ui.icon('phone') }}</span>{{ brand.brand_name }}{% endif %}</div>
   <form class="surface" method="post" action="/login">
     <div class="surface-body stack">
@@ -19,6 +19,6 @@
       <button class="btn primary block" type="submit">Sign in</button>
     </div>
   </form>
-</div></div>
+</div></main>
 <div class="toasts" role="status" aria-live="polite">{% for f in flashes %}<div class="toast" data-tone="{{ 'bad' if f.kind == 'error' else 'good' }}">{{ ui.icon('alert' if f.kind == 'error' else 'check') }}<span>{{ f.message }}</span><button class="toast-close" type="button" aria-label="Dismiss">{{ ui.icon('x') }}</button></div>{% endfor %}</div>
 </body></html>

@@ -86,6 +86,7 @@
         if (samePage) history.replaceState({ y: 0 }, "", page.url.href);
         else { history.replaceState({ y }, ""); history.pushState({ y: 0 }, "", page.url.href); }
       }
+      shownPath = location.pathname + location.search;
       runScripts(document.body);
       hydrate(document);
       if (restoreY !== null) scrollTo(0, restoreY);
@@ -287,7 +288,14 @@
       else if (e.key === "Enter") { e.preventDefault(); cmdk.go(); }
       return;
     }
-    // table rows that navigate are reachable from the keyboard through their first link
+    const day = e.target.closest && e.target.closest(".chart-bars .day");
+    if (day && /^(ArrowLeft|ArrowRight|Home|End)$/.test(e.key)) {
+      const all = [...day.parentElement.children];
+      const next = e.key === "Home" ? all[0] : e.key === "End" ? all[all.length - 1]
+        : all[Math.min(all.length - 1, Math.max(0, all.indexOf(day) + (e.key === "ArrowRight" ? 1 : -1)))];
+      e.preventDefault(); all.forEach((d) => (d.tabIndex = d === next ? 0 : -1)); next.focus();
+      return;
+    }
     if (e.key === "/" && !/^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName) && !e.target.isContentEditable && !e.metaKey && !e.ctrlKey) { e.preventDefault(); cmdk.open(); }
   });
 
@@ -313,7 +321,13 @@
   document.addEventListener("pointerdown", (e) => { if (!e.target.closest?.("[data-tip]")) hideTip(); }, { passive: true });
   addEventListener("scroll", () => { hideTip(); document.body.classList.toggle("scrolled", scrollY > 4); }, { passive: true });
 
-  addEventListener("popstate", (e) => visit(location.href, { push: false, restoreY: (e.state && e.state.y) || 0 }));
+  // popstate also fires for in-page #anchors (the skip link). Only reload when the page itself changed.
+  let shownPath = location.pathname + location.search;
+  addEventListener("popstate", (e) => {
+    const now = location.pathname + location.search;
+    if (now === shownPath) return;
+    visit(location.href, { push: false, restoreY: (e.state && e.state.y) || 0 });
+  });
 
   /* ---------- confirm dialog ---------- */
   function confirmDialog(text, title, okText) {

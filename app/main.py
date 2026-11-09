@@ -177,6 +177,37 @@ def create_app() -> FastAPI:
 
         return RedirectResponse(f"/login?next={quote(request.url.path, safe='/')}", status_code=303)
 
+    from starlette.exceptions import HTTPException as StarletteHTTPException
+
+    ERROR_COPY = {
+        403: ("You don't have access to this page", "This part of the dashboard is only for the agency team or an admin. "
+                                                    "If you think that's a mistake, ask whoever set up your account."),
+        404: ("We can't find that page", "The link may be old, or the item was deleted."),
+        405: ("That link can't be opened directly", "Go back and use the button on the page instead."),
+    }
+
+    @app.exception_handler(StarletteHTTPException)
+    async def _http_error(request: Request, exc: StarletteHTTPException):
+        """People get a page with a way back; scripts and API callers keep getting JSON."""
+        from fastapi.responses import JSONResponse
+
+        wants_html = "text/html" in (request.headers.get("accept") or "")
+        soft_post = request.method != "GET" and request.headers.get("x-requested-with") == "deskline"  # shown as a toast
+        path = request.url.path
+        if not wants_html or soft_post or path.startswith(("/api/", "/webhooks/", "/static/", "/widget/")) or exc.status_code >= 500:
+            return JSONResponse({"detail": exc.detail}, status_code=exc.status_code, headers=getattr(exc, "headers", None))
+        from .templating import render
+
+        uid = request.session.get("uid") if "session" in request.scope else None
+        with SessionLocal() as db:
+            user = db.get(User, uid) if uid else None
+            home = "/login" if not user else ("/" if user.is_agency else "/portal")
+        title, body = ERROR_COPY.get(exc.status_code, ("Something went wrong", str(exc.detail)))
+        if exc.status_code == 400 and exc.detail:
+            title, body = "That didn't work", str(exc.detail)
+        return render(request, "error.html", status_code=exc.status_code, code=exc.status_code, title=title, body=body,
+                      home=home, signed_in=bool(user))
+
     @app.get("/healthz")
     def healthz():
         return {"ok": True}

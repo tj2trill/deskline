@@ -5,9 +5,9 @@
 <script src="/static/theme.js?v={{ asset_v }}"></script>
 <link rel="stylesheet" href="/static/app.css?v={{ asset_v }}"><style>:root{--brand:{{ brand.primary_color|color }};--on-brand:{{ brand.primary_color|on_color }}}</style></head>
 <body>{% include "_icons.html" %}
-<div class="auth"><div class="auth-card">
+<main class="auth"><div class="auth-card">
   <div class="brand">{% if brand.logo_url %}<img src="{{ brand.logo_url|safe_url }}" alt="{{ brand.brand_name }}">{% else %}<span class="brand-mark">{{ ui.icon('phone') }}</span>{{ brand.brand_name }}{% endif %}</div>
   <div class="surface"><div class="surface-body stack">{% block body %}{% endblock %}</div></div>
   {% if brand.support_email %}<p class="small muted mt center">Questions? <a href="mailto:{{ brand.support_email }}">{{ brand.support_email }}</a></p>{% endif %}
-</div></div>
+</div></main>
 </body></html>

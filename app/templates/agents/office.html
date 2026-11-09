@@ -28,7 +28,7 @@
     <div class="office-loading muted small" data-office-loading>Opening the office…</div>
   </div>
 
-  <div class="office-roster" data-office-roster role="list" aria-label="Team"></div>
+  <div class="office-roster" data-office-roster role="group" aria-label="Team"></div>
 
   <aside class="office-panel" data-office-panel hidden aria-labelledby="office-panel-title" tabindex="-1">
     <div class="office-panel-head">
@@ -42,5 +42,5 @@
   <noscript><div class="callout">{{ ui.icon('alert') }}<span>The office needs JavaScript. <a href="/agents">Open the list view</a> instead.</span></div></noscript>
   <script type="application/json" data-office-snapshot>{{ snap|tojson }}</script>
 </div>
-<script src="/static/office.js?v=3"></script>
+<script src="/static/office.js?v={{ asset_v }}"></script>
 {% endblock %}

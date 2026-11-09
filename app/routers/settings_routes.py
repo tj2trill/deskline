@@ -50,7 +50,8 @@ def settings_page(request: Request, db: Session = Depends(get_db)):
     return render(request, "settings.html", agency=agency_settings(db), status=integration_status(), events=events,
                   team=team, outbox=list(reversed(messaging.OUTBOX[-10:])),
                   vapi_webhook=f"{s.base_url}/webhooks/vapi", stripe_webhook=f"{s.base_url}/webhooks/stripe",
-                  inbound_webhook=f"{s.base_url}/webhooks/inbound-email/{s.webhook_token}")
+                  inbound_webhook=(f"{s.base_url}/webhooks/inbound-email/{s.webhook_token}"
+                                   if request.state.user.role == "admin" else ""))
 
 
 @router.post("/settings", dependencies=[Depends(admin_user)])

@@ -134,7 +134,7 @@ def on_color(value: str | None) -> str:
     return "#0f1720" if lum > 0.42 else "#ffffff"
 
 
-ASSET_V = "5"  # bump when app.css / app.js change so browsers refetch
+ASSET_V = "7"  # bump when app.css / app.js change so browsers refetch
 templates.env.globals["asset_v"] = ASSET_V
 templates.env.filters.update(on_color=on_color, safe_url=lambda v: safe_url(v) or "#", color=safe_color, dollars=dollars, money=money, duration=duration, localtime=localtime, phone=phone, tone=tone,
                              label=label, turns=turns, initials=initials)
