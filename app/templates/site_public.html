@@ -2,7 +2,7 @@
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{{ c.headline }}</title><meta name="description" content="{{ c.subheadline }}">
 <style>
-:root{--c:{{ site.theme_color }};font-family:ui-sans-serif,system-ui,sans-serif;color:#15171a}
+:root{--c:{{ site.theme_color|color('#2563eb') }};font-family:ui-sans-serif,system-ui,sans-serif;color:#15171a}
 body{margin:0;background:#fff;line-height:1.55}.w{max-width:1040px;margin:0 auto;padding:0 20px}
 header{background:linear-gradient(135deg,var(--c),color-mix(in srgb,var(--c) 55%,#000));color:#fff;padding:72px 0 80px}
 h1{font-size:clamp(30px,5vw,48px);line-height:1.1;margin:0 0 14px}header p{font-size:19px;max-width:640px;opacity:.95}
@@ -20,7 +20,7 @@ details{border-bottom:1px solid #e6e8eb;padding:12px 0}summary{font-weight:600;c
 <header><div class="w">
   <h1>{{ c.headline }}</h1><p>{{ c.subheadline }}</p>
   {% if c.phone %}<a class="cta" href="tel:{{ c.phone }}">{{ c.cta_text or 'Call now' }} · {{ c.phone }}</a>{% endif %}
-  {% if c.booking_link %}<a class="cta alt" href="{{ c.booking_link }}">Book online</a>{% endif %}
+  {% if c.booking_link %}<a class="cta alt" href="{{ c.booking_link|safe_url }}" rel="noopener">Book online</a>{% endif %}
 </div></header>
 {% if c.services %}<section><div class="w"><h2>Services</h2><div class="grid">{% for s in c.services %}<div class="card"><b>{{ s.name }}</b>{{ s.description }}</div>{% endfor %}</div></div></section>{% endif %}
 <section class="alt-bg"><div class="w"><h2>About us</h2><p style="max-width:720px">{{ c.about }}</p>

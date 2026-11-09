@@ -7,8 +7,8 @@
     <h1>{{ p.name }} {{ ui.badge(p.status) }}</h1>
     <div class="meta">
       {% if p.phone %}<a class="cluster" href="tel:{{ p.phone }}">{{ ui.icon('phone') }}{{ p.phone|phone }}</a>{% endif %}
-      {% if p.website %}<a class="cluster" href="{{ p.website }}" target="_blank" rel="noopener">{{ ui.icon('globe') }}Website</a>{% endif %}
-      {% if p.maps_url %}<a class="cluster" href="{{ p.maps_url }}" target="_blank" rel="noopener">{{ ui.icon('external') }}Google Maps</a>{% endif %}
+      {% if p.website %}<a class="cluster" href="{{ p.website|safe_url }}" target="_blank" rel="noopener">{{ ui.icon('globe') }}Website</a>{% endif %}
+      {% if p.maps_url %}<a class="cluster" href="{{ p.maps_url|safe_url }}" target="_blank" rel="noopener">{{ ui.icon('external') }}Google Maps</a>{% endif %}
       {% if p.address %}<span>{{ p.address }}</span>{% endif %}
     </div>
   </div>

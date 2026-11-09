@@ -61,8 +61,8 @@ class CrawlResult:
 
 def normalize_url(url: str) -> str:
     url = (url or "").strip()
-    if not url:
-        return ""
+    if not url or re.match(r"^(javascript|data|vbscript|file|blob|about):", url, re.I):
+        return ""  # never turn a script/data URL into something that looks like a website
     if not re.match(r"^https?://", url, re.I):
         url = "https://" + url
     return url
@@ -70,7 +70,10 @@ def normalize_url(url: str) -> str:
 
 def assert_public_host(url: str) -> None:
     """Refuse to fetch internal addresses (SSRF guard: this server may sit next to Postgres)."""
-    host = urlparse(url).hostname or ""
+    parsed = urlparse(url)
+    host = parsed.hostname or ""
+    if parsed.scheme not in ("http", "https"):
+        raise ValueError("Only http and https URLs can be fetched")
     if not host:
         raise ValueError("URL has no host")
     try:
@@ -83,8 +86,10 @@ def assert_public_host(url: str) -> None:
             addresses = [ipaddress.ip_address(i[4][0]) for i in socket.getaddrinfo(host, None)]
         except socket.gaierror as e:
             raise ValueError(f"Cannot resolve {host}") from e
+    from ..security import is_public_ip
+
     for ip in addresses:
-        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast or ip.is_unspecified:
+        if not is_public_ip(ip):
             raise ValueError(f"{host} resolves to a non-public address")
 
 

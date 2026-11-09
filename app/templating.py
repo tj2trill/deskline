@@ -121,7 +121,22 @@ def initials(value: str | None) -> str:
     return "".join(p[0] for p in parts[:2]).upper() or "?"
 
 
-templates.env.filters.update(dollars=dollars, money=money, duration=duration, localtime=localtime, phone=phone, tone=tone,
+from .security import safe_color, safe_url  # noqa: E402
+
+def on_color(value: str | None) -> str:
+    """Black or white, whichever reads better on the given brand colour (WCAG relative luminance)."""
+    c = safe_color(value).lstrip("#")
+    if len(c) == 3:
+        c = "".join(ch * 2 for ch in c)
+    lin = [((v / 255) / 12.92) if (v / 255) <= 0.03928 else (((v / 255) + 0.055) / 1.055) ** 2.4
+           for v in (int(c[i:i + 2], 16) for i in (0, 2, 4))]
+    lum = 0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2]
+    return "#0f1720" if lum > 0.42 else "#ffffff"
+
+
+ASSET_V = "5"  # bump when app.css / app.js change so browsers refetch
+templates.env.globals["asset_v"] = ASSET_V
+templates.env.filters.update(on_color=on_color, safe_url=lambda v: safe_url(v) or "#", color=safe_color, dollars=dollars, money=money, duration=duration, localtime=localtime, phone=phone, tone=tone,
                              label=label, turns=turns, initials=initials)
 
 

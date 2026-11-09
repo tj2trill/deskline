@@ -1,6 +1,7 @@
 """Tiny automation engine: trigger → conditions → actions (SMS, email, webhook)."""
 from __future__ import annotations
 
+import re
 from datetime import datetime, timezone
 
 from sqlalchemy import or_, select
@@ -21,16 +22,21 @@ FIELDS = ["outcome", "summary", "caller_number", "caller_name", "duration_second
           "message", "source", "urgent"]
 
 
-class _Safe(dict):
-    def __missing__(self, key):
-        return ""
+_PLACEHOLDER = re.compile(r"\{([A-Za-z_][A-Za-z0-9_]*)\}")
 
 
 def render(template: str, ctx: dict) -> str:
-    try:
-        return (template or "").format_map(_Safe({k: ("" if v is None else v) for k, v in ctx.items()}))
-    except (ValueError, IndexError):
-        return template or ""
+    """Replace {name} with ctx[name]. Deliberately not str.format: that would let a template walk
+    attributes ({x.__class__...}) and index into objects."""
+    def one(m: re.Match) -> str:
+        v = ctx.get(m.group(1))
+        return "" if v is None else str(v)
+
+    return _PLACEHOLDER.sub(one, template or "")
+
+
+def _one_line(value: str) -> str:
+    return re.sub(r"[\r\n]+", " ", value).strip()
 
 
 def _cond_ok(cond: dict, ctx: dict) -> bool:
@@ -60,7 +66,10 @@ def _act(action: dict, ctx: dict) -> None:
     elif kind == "email":
         to = render(action.get("to", "{owner_email}"), ctx)
         body = render(action.get("body", ""), ctx)
-        messaging.send_email(to, render(action.get("subject", "Notification"), ctx), body.replace("\n", "<br>"), body)
+        from ..security import text_to_html
+
+        # ctx carries what callers said (names, messages): escape before it becomes HTML in the owner's inbox
+        messaging.send_email(to, _one_line(render(action.get("subject", "Notification"), ctx)), text_to_html(body), body)
     elif kind == "webhook":
         url = render(action.get("url", ""), ctx)
         crawler.assert_public_host(url)

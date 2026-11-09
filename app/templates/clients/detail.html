@@ -8,7 +8,7 @@
     <h1>{{ client.name }} {{ ui.badge(client.status) }}</h1>
     <div class="meta">
       {% if client.industry %}<span>{{ client.industry }}</span>{% endif %}
-      {% if client.website %}<a class="cluster" href="{{ client.website }}" target="_blank" rel="noopener">{{ ui.icon('globe') }}{{ client.website.replace('https://','').replace('http://','').rstrip('/') }}</a>{% endif %}
+      {% if client.website %}<a class="cluster" href="{{ client.website|safe_url }}" target="_blank" rel="noopener">{{ ui.icon('globe') }}{{ client.website.replace('https://','').replace('http://','').rstrip('/') }}</a>{% endif %}
       {% for n in client.numbers if n.number %}<span class="cluster">{{ ui.icon('phone') }}{{ n.number|phone }}</span>{% endfor %}
       {% include "clients/_build_status.html" %}
     </div>

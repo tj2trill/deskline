@@ -59,8 +59,93 @@ def usage_this_month(db: Session, client_id: int | None = None) -> dict:
 
 # ------------------------------------------------------------------ dashboard
 
+OUTCOME_ORDER = ["booked", "lead", "message", "transferred", "info", "missed", "spam"]
+
+
+def activity(db: Session, tz_name: str, days: int = 30) -> dict:
+    """Call volume for the last `days` local days, plus the same-length window before it for comparison.
+    Only the three columns needed are loaded, never transcripts."""
+    from zoneinfo import ZoneInfo
+
+    try:
+        tz = ZoneInfo(tz_name or "UTC")
+    except Exception:
+        tz = timezone.utc
+    now = datetime.now(timezone.utc)
+    today = now.astimezone(tz).date()
+    first = today - timedelta(days=days - 1)
+    since = now - timedelta(days=days * 2 + 1)
+    per_day = {first + timedelta(days=i): {"calls": 0, "booked": 0} for i in range(days)}
+    outcomes: dict[str, int] = {}
+    prev_calls = 0
+    for created, outcome in db.execute(select(Call.created_at, Call.outcome).where(Call.created_at >= since)).all():
+        if created.tzinfo is None:
+            created = created.replace(tzinfo=timezone.utc)
+        d = created.astimezone(tz).date()
+        if d in per_day:
+            per_day[d]["calls"] += 1
+            per_day[d]["booked"] += outcome == "booked"
+            key = outcome if outcome in OUTCOME_ORDER else "info"
+            outcomes[key] = outcomes.get(key, 0) + 1
+        elif first - timedelta(days=days) <= d < first:
+            prev_calls += 1
+    series = [{"date": d, "label": d.strftime("%b %-d"), "weekday": d.strftime("%a"), **v} for d, v in per_day.items()]
+    total = sum(v["calls"] for v in per_day.values())
+    peak = max((v["calls"] for v in per_day.values()), default=0)
+    # round the axis up to a tidy number so the gridlines read 0 / half / max
+    top = next((t for t in (4, 10, 20, 30, 40, 50, 60, 80, 100, 150, 200, 300, 400, 500, 800, 1000) if t >= peak), peak or 4)
+    real = total - outcomes.get("spam", 0)
+    answered = real - outcomes.get("missed", 0)
+    return {
+        "days": series, "total": total, "prev": prev_calls, "top": top, "peak": peak,
+        "change": round((total - prev_calls) / prev_calls * 100) if prev_calls else None,
+        "outcomes": [(o, outcomes[o]) for o in OUTCOME_ORDER if outcomes.get(o)],
+        "booked": outcomes.get("booked", 0),
+        "answer_rate": round(answered / real * 100) if real else None,
+        "today": today,
+    }
+
+
+def attention_items(db: Session, clients: list[Client], rows: list[dict], counts: dict) -> list[dict]:
+    """Things that need a person, most urgent first. Every item links to where it gets fixed."""
+    items = []
+    for c in clients:
+        if c.stripe_status in ("past_due", "unpaid"):
+            items.append({"tone": "bad", "icon": "billing", "title": f"{c.name} has a failed payment",
+                          "text": "Their subscription is past due. Calls forward to the owner until it is paid.",
+                          "href": f"/clients/{c.id}?tab=billing"})
+    for r in rows:
+        c = r["client"]
+        if c.status == "active" and r["usage"]["cost"] > r["revenue"]:
+            items.append({"tone": "bad", "icon": "trend", "title": f"{c.name} costs more than it bills",
+                          "text": "Provider cost this month is above what the plan brings in. Raise the price or set a minute cap.",
+                          "href": f"/clients/{c.id}?tab=billing"})
+        if c.agent and (c.agent.sync_status == "error" or c.agent.build_status == "error"):
+            items.append({"tone": "bad", "icon": "bot", "title": f"{c.name}'s receptionist has an error",
+                          "text": (c.agent.sync_error or c.agent.build_error or "Open the receptionist tab to see what failed.")[:140],
+                          "href": f"/clients/{c.id}?tab=agent"})
+    if counts.get("review"):
+        n = counts["review"]
+        items.append({"tone": "wait", "icon": "phone", "title": f"{n} call{'s' if n != 1 else ''} flagged for review",
+                      "text": "The caller sounded unhappy or the receptionist could not help.", "href": "/calls?flagged=1"})
+    if counts.get("approvals"):
+        n = counts["approvals"]
+        items.append({"tone": "wait", "icon": "bot", "title": f"{n} agent action{'s' if n != 1 else ''} waiting for approval",
+                      "text": "Nothing is sent or bought until you approve it.", "href": "/agents"})
+    waiting = dict(db.execute(select(Contact.client_id, func.count()).where(Contact.status == "new").group_by(Contact.client_id)).all())
+    names = {c.id: c.name for c in clients}
+    for cid, n in sorted(waiting.items(), key=lambda kv: -kv[1])[:3]:
+        if cid in names:
+            items.append({"tone": "lead", "icon": "inbox", "title": f"{n} new message{'s' if n != 1 else ''} for {names[cid]}",
+                          "text": "Leads and messages nobody has marked as handled yet.", "href": f"/clients/{cid}?tab=inbox"})
+    return items
+
+
 @router.get("/", response_class=HTMLResponse)
 def dashboard(request: Request, db: Session = Depends(get_db)):
+    from ..templating import nav_counts
+    from .settings_routes import agency_settings
+
     clients = db.scalars(select(Client)).all()
     usage = usage_this_month(db)
     rows, totals = [], {"revenue": 0.0, "cost": 0.0, "calls": 0, "minutes": 0}
@@ -72,14 +157,32 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
         totals["cost"] += u["cost"]
         totals["calls"] += u["calls"]
         totals["minutes"] += u["minutes"]
-    recent = db.scalars(select(Call).order_by(Call.created_at.desc()).limit(10)).all()
+    recent = db.scalars(select(Call).order_by(Call.created_at.desc()).limit(8)).all()
     names = {c.id: c.name for c in clients}
     pipeline = dict(db.execute(select(Prospect.status, func.count()).group_by(Prospect.status)).all())
     new_contacts = db.scalar(select(func.count()).select_from(Contact).where(Contact.status == "new")) or 0
-    return render(request, "dashboard.html", rows=sorted(rows, key=lambda r: -r["revenue"]), totals=totals,
-                  recent=recent, names=names, pipeline=pipeline, new_contacts=new_contacts,
+    counts = nav_counts(request.state.user)
+    act = activity(db, agency_settings(db).timezone)
+    return render(request, "dashboard.html", rows=sorted(rows, key=lambda r: (-r["revenue"], -r["usage"]["calls"])), totals=totals,
+                  recent=recent, names=names, pipeline=pipeline, new_contacts=new_contacts, counts=counts, act=act,
+                  attention=attention_items(db, clients, rows, counts),
                   active=sum(1 for c in clients if c.status == "active"),
                   demos=sum(1 for c in clients if c.status == "demo"))
+
+
+@router.get("/search.json")
+def quick_search(q: str = "", db: Session = Depends(get_db)):
+    """Backs the Ctrl+K palette: clients and prospects by name. Agency users only (router dependency)."""
+    q = q.strip()[:80]
+    if len(q) < 2:
+        return {"results": []}
+    like = "%" + q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+    out = []
+    for c in db.scalars(select(Client).where(Client.name.ilike(like, escape="\\")).order_by(Client.name).limit(6)):
+        out.append({"label": c.name, "href": f"/clients/{c.id}", "icon": "building", "group": "Clients", "hint": c.status.capitalize()})
+    for p in db.scalars(select(Prospect).where(Prospect.name.ilike(like, escape="\\")).order_by(Prospect.score.desc()).limit(6)):
+        out.append({"label": p.name, "href": f"/prospects/{p.id}", "icon": "search", "group": "Leads", "hint": f"Score {p.score}"})
+    return {"results": out}
 
 
 # ------------------------------------------------------------------ clients
@@ -187,7 +290,14 @@ def client_info(request: Request, client_id: int, name: str = Form(...), website
     if transfer_number and not messaging.normalize_phone(transfer_number):
         flash(request, "Transfer number must be a full phone number, e.g. +14165550123.", "error")
         return back(client_id)
-    c.name, c.website, c.industry = name[:160], website or None, industry or None
+    from ..security import safe_url
+    from ..services import crawler
+
+    site = safe_url(crawler.normalize_url(website)) if website.strip() else ""
+    if website.strip() and not site:
+        flash(request, "Website must be an http(s) address.", "error")
+        return back(client_id)
+    c.name, c.website, c.industry = name[:160], site or None, industry or None
     c.business_phone, c.transfer_number = business_phone or None, messaging.normalize_phone(transfer_number)
     c.owner_name, c.owner_email, c.owner_phone = owner_name or None, owner_email.lower() or None, owner_phone or None
     c.address, c.service_area, c.timezone = address or None, service_area or None, timezone_
@@ -227,7 +337,12 @@ def client_booking(request: Request, client_id: int, booking_mode: str = Form("i
     if calcom_api_key and not calcom_api_key.startswith("•"):
         c.calcom_api_key = calcom_api_key.strip()
     c.calcom_event_type_id = calcom_event_type_id.strip() or None
-    c.booking_link = booking_link.strip() or None
+    from ..security import safe_url
+
+    link = safe_url(booking_link)
+    if booking_link.strip() and not link:
+        flash(request, "Booking link must start with https://. It was not saved.", "error")
+    c.booking_link = link or None
     if c.booking_mode == "calcom" and not (c.calcom_api_key and c.calcom_event_type_id):
         flash(request, "Cal.com mode needs an API key and event type ID.", "error")
     _resync(request, db, c)
@@ -454,13 +569,15 @@ def test_call(request: Request, client_id: int, to: str = Form(...), db: Session
 # ------------------------------------------------------------------ calls + inbox
 
 @router.get("/calls", response_class=HTMLResponse)
-def all_calls(request: Request, outcome: str = "", db: Session = Depends(get_db)):
+def all_calls(request: Request, outcome: str = "", flagged: str = "", db: Session = Depends(get_db)):
     q = select(Call).order_by(Call.created_at.desc()).limit(300)
     if outcome:
         q = q.where(Call.outcome == outcome)
+    if flagged:
+        q = q.where(Call.flagged.is_(True), Call.reviewed.is_(False))
     calls_ = db.scalars(q).all()
     names = {c.id: c.name for c in db.scalars(select(Client))}
-    return render(request, "calls/list.html", calls=calls_, names=names, outcome=outcome)
+    return render(request, "calls/list.html", calls=calls_, names=names, outcome=outcome, flagged=bool(flagged))
 
 
 @router.get("/calls/{call_id}", response_class=HTMLResponse)
@@ -541,17 +658,22 @@ def workflow_add(request: Request, name: str = Form(...), trigger: str = Form(..
                  action_text: str = Form(""), db: Session = Depends(get_db)):
     if trigger not in workflows.TRIGGERS:
         raise HTTPException(400, "bad trigger")
+    if action_type not in ("sms", "email", "webhook"):
+        raise HTTPException(400, "bad action")
     conditions = [{"field": cond_field, "op": cond_op, "value": cond_value}] if cond_field else []
     action = {"type": action_type}
     if action_type == "webhook":
-        action["url"] = action_to
+        if not action_to.strip().lower().startswith("https://"):
+            flash(request, "Webhook URL must start with https://", "error")
+            return back(int(client_id), "automations") if client_id.isdigit() else RedirectResponse("/automations", status_code=303)
+        action["url"] = action_to.strip()
     else:
         action["to"] = action_to or ("{owner_phone}" if action_type == "sms" else "{owner_email}")
         action["text" if action_type == "sms" else "body"] = action_text
         if action_type == "email":
             action["subject"] = action_subject or "Update from {client_name}"
-    cid = int(client_id) if client_id.isdigit() else None
-    db.add(Workflow(name=name, trigger=trigger, client_id=cid, conditions=conditions, actions=[action]))
+    cid = int(client_id) if client_id.isdigit() and db.get(Client, int(client_id)) else None
+    db.add(Workflow(name=name[:120], trigger=trigger, client_id=cid, conditions=conditions, actions=[action]))
     db.commit()
     flash(request, "Automation saved.")
     return back(cid, "automations") if cid else RedirectResponse("/automations", status_code=303)

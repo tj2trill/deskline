@@ -454,6 +454,7 @@ class DailyBrief(Agent):
 
         lines.append(f"\nApprove or review: {get_settings().base_url}/agents")
         body = "\n".join(lines)
+        from ..security import text_to_html
         from ..services import messaging
 
         to = ctx.agency.alert_email or db.scalars(select(User.email).where(User.role == "admin")).first()
@@ -461,7 +462,7 @@ class DailyBrief(Agent):
             ctx.summary = "No admin email to send the brief to."
             return
         messaging.send_email(to, f"{ctx.agency.brand_name} daily brief: {calls} calls, {len(pending)} approvals waiting",
-                             "<p>" + body.replace("\n", "<br>") + "</p>", body)
+                             text_to_html(body), body)
         ctx.remember(last_sent=today)
         ctx.stats["briefs_sent"] += 1
         ctx.summary = f"Sent to {to}: {calls} calls, {booked} bookings, {len(pending)} approvals waiting."

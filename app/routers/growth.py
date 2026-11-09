@@ -9,12 +9,13 @@ from sqlalchemy.orm import Session
 from ..config import get_settings
 from ..db import get_db
 from ..models import Client, EmailDraft, Proposal, Prospect, ProspectSearch, Site, Suppression
-from ..security import agency_user
+from ..security import agency_user, safe_color, safe_url
 from ..services import http, leads, pricing, sitegen, writer
 from ..templating import flash, render
 from .settings_routes import agency_settings
 
 router = APIRouter(dependencies=[Depends(agency_user)])
+MAX_CSV_BYTES = 2_000_000
 
 
 def _prospect(db: Session, pid: int) -> Prospect:
@@ -50,7 +51,11 @@ async def leads_import(request: Request, file: UploadFile | None = File(None), c
                        niche: str = Form("imported"), db: Session = Depends(get_db)):
     text = csv_text
     if file and file.filename:
-        text = (await file.read()).decode("utf-8-sig", errors="replace")
+        raw = await file.read(MAX_CSV_BYTES + 1)
+        if len(raw) > MAX_CSV_BYTES:
+            flash(request, "That file is over 2 MB. Split it and import in parts.", "error")
+            return RedirectResponse("/leads", status_code=303)
+        text = raw.decode("utf-8-sig", errors="replace")
     if not text.strip():
         flash(request, "Paste CSV text or choose a file (columns: name, phone, website, email, address).", "error")
         return RedirectResponse("/leads", status_code=303)
@@ -289,14 +294,17 @@ def site_save(request: Request, site_id: int, headline: str = Form(""), subheadl
     if not site:
         raise HTTPException(404)
     c = dict(site.content or {})
-    c.update(headline=headline, subheadline=subheadline, about=about, phone=phone or None, booking_link=booking_link or None)
+    link = safe_url(booking_link)
+    if booking_link.strip() and not link:
+        flash(request, "Booking link must start with https://. It was not saved.", "error")
+    c.update(headline=headline, subheadline=subheadline, about=about, phone=phone or None, booking_link=link or None)
     c["services"] = [{"name": ln.split("|")[0].strip(), "description": (ln.split("|", 1)[1].strip() if "|" in ln else "")}
                      for ln in services.splitlines() if ln.strip()]
     c["why"] = [ln.strip() for ln in why.splitlines() if ln.strip()]
     # Real reviews only — paste them from Google with the reviewer's first name.
     c["reviews"] = [{"author": ln.split("|")[0].strip(), "text": ln.split("|", 1)[1].strip()}
                     for ln in reviews.splitlines() if "|" in ln]
-    site.content, site.theme_color = c, theme_color[:20]
+    site.content, site.theme_color = c, safe_color(theme_color, site.theme_color or "#2563eb")
     site.domain = domain.strip().lower() or None
     site.published = bool(published)
     db.commit()

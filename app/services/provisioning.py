@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from ..config import get_settings
 from ..models import AgencySettings, Agent, Client, PhoneNumber, Prospect, User, slugify
-from ..security import hash_password
+from ..security import esc, hash_password
 from . import billing, crawler, http, messaging, pricing, vapi
 
 
@@ -26,7 +26,9 @@ def create_client(db: Session, agency: AgencySettings, *, website: str = "", nam
                   business_phone: str = "", owner_name: str = "", owner_email: str = "", owner_phone: str = "",
                   timezone: str = "America/Toronto", agent_name: str = "Ava", status: str = "demo",
                   prospect: Prospect | None = None) -> Client:
-    website = crawler.normalize_url(website) if website.strip() else ""
+    from ..security import safe_url
+
+    website = safe_url(crawler.normalize_url(website)) if website.strip() else ""
     if not (website or name.strip()):
         raise ValueError("Add a website or a business name.")
     display = name.strip() or re.sub(r"^https?://(www\.)?", "", website).split("/")[0]
@@ -81,8 +83,8 @@ def send_checkout(db: Session, client: Client, agency: AgencySettings, email: bo
         if not client.owner_email:
             raise ValueError("The client has no owner email to send the checkout link to.")
         messaging.send_email(client.owner_email, f"Activate your AI receptionist with {agency.brand_name}",
-                             f"<p>Hi {client.owner_name or 'there'},</p><p>Your receptionist for {client.name} is ready. "
-                             f"Plan: {pricing.describe(client)}.</p><p><a href=\"{url}\">Start your subscription</a></p>")
+                             f"<p>Hi {esc(client.owner_name or 'there')},</p><p>Your receptionist for {esc(client.name)} is ready. "
+                             f"Plan: {esc(pricing.describe(client))}.</p><p><a href=\"{esc(url)}\">Start your subscription</a></p>")
     return url
 
 
@@ -100,9 +102,10 @@ def create_owner_login(db: Session, client: Client, agency: AgencySettings, emai
     extra = ""
     if welcome:
         extra = ("<p>To go live, forward your business line to "
-                 f"<b>{number or 'your AI number'}</b> when you're busy or closed. On most phones that's *72 followed by the number. "
+                 f"<b>{esc(number or 'your AI number')}</b> when you're busy or closed. On most phones that's *72 followed by the number. "
                  "You'll get a summary after every call and a report each Monday.</p>")
     messaging.send_email(email, f"Welcome to {agency.brand_name}" if welcome else f"Your {agency.brand_name} dashboard login",
-                         f"<p>Your call dashboard for {client.name}: <a href=\"{s.base_url}/login\">{s.base_url}/login</a></p>"
-                         f"<p>Email: {email}<br>Temporary password: <code>{pw}</code></p>{extra}")
+                         f"<p>Your call dashboard for {esc(client.name)}: <a href=\"{s.base_url}/login\">{s.base_url}/login</a></p>"
+                         f"<p>Email: {esc(email)}<br>Temporary password: <code>{esc(pw)}</code></p>"
+                         f"<p>Change it after your first sign-in.</p>{extra}")
     return pw
