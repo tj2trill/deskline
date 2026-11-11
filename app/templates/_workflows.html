@@ -12,7 +12,7 @@
 <form method="post" action="/workflows">
   <input type="hidden" name="client_id" value="{{ scope_client or '' }}">
   <div class="surface-body form-grid{{ ' divided' if workflows }}">
-    <h3 class="full">New automation</h3>
+    <h2 class="full section-title">New automation</h2>
     {{ ui.field('name', 'Name', placeholder='Text the owner about urgent calls', required=True, cls='full', id='wf-name') }}
     {{ ui.choice('trigger', 'When', triggers.items()|list) }}
     <div class="field"><label for="f-cond_field">Only if <span class="muted">(optional)</span></label>

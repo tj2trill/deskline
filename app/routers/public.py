@@ -2,8 +2,6 @@
 from __future__ import annotations
 
 import json
-import time
-from collections import defaultdict, deque
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -15,22 +13,19 @@ from sqlalchemy.orm import Session
 from ..config import get_settings
 from ..db import get_db
 from ..models import ChatSession, Client, Proposal, Site, Suppression
+from ..security import Throttle, client_ip, safe_color
 from ..services import chat, outreach
 from ..templating import render
 
 router = APIRouter()
-_RATE: dict[str, deque] = defaultdict(deque)
+# Bounded sliding windows (the old defaultdict grew by one key per visitor forever).
+_PER_VISITOR = Throttle(limit=20, window=60.0)
+_PER_WIDGET = Throttle(limit=300, window=60.0)  # one site can't burn the whole LLM budget
+MAX_CHAT_BODY = 16_384
 
 
-def _rate_ok(key: str, limit: int = 20, window: float = 60.0) -> bool:
-    now = time.monotonic()
-    q = _RATE[key]
-    while q and now - q[0] > window:
-        q.popleft()
-    if len(q) >= limit:
-        return False
-    q.append(now)
-    return True
+def _rate_ok(key: str) -> bool:
+    return _PER_VISITOR.hit(key)
 
 
 def _cors(client: Client, request: Request) -> dict:
@@ -59,12 +54,16 @@ async def chat_message(key: str, request: Request, db: Session = Depends(get_db)
     headers = _cors(client, request)
     if not headers:
         return JSONResponse({"error": "origin not allowed"}, status_code=403)
-    ip = request.headers.get("x-forwarded-for", request.client.host if request.client else "?").split(",")[0]
-    if not _rate_ok(f"{key}:{ip}"):
+    if not _rate_ok(f"{key}:{client_ip(request)}") or not _PER_WIDGET.hit(key):
         return JSONResponse({"reply": "You're sending messages quickly — give me a moment."}, status_code=429, headers=headers)
+    raw = await request.body()
+    if len(raw) > MAX_CHAT_BODY:
+        return JSONResponse({"error": "too large"}, status_code=413, headers=headers)
     try:
-        body = await request.json()
-    except json.JSONDecodeError:
+        body = json.loads(raw)
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        body = None
+    if not isinstance(body, dict):
         return JSONResponse({"error": "bad json"}, status_code=400, headers=headers)
     visitor = str(body.get("visitor_id") or "anon")[:64]
     text = str(body.get("message") or "").strip()[:2000]
@@ -94,10 +93,10 @@ def widget_js(key: str, db: Session = Depends(get_db)):
     from ..models import AgencySettings
 
     agency = db.scalars(select(AgencySettings)).first()
-    color = agency.primary_color if agency else "#2563eb"
+    color = safe_color(agency.primary_color if agency else None, "#2563eb")
     cfg = {"api": f"{get_settings().base_url}/api/chat/{key}", "name": client.name, "color": color,
            "greeting": f"Hi! Questions about {client.name}? I can help or book you in."}
-    js = WIDGET_JS.replace("__CONFIG__", json.dumps(cfg))
+    js = WIDGET_JS.replace("__CONFIG__", json.dumps(cfg).replace("\u2028", "\\u2028").replace("\u2029", "\\u2029"))
     return Response(js, media_type="application/javascript", headers={"Cache-Control": "public, max-age=300"})
 
 

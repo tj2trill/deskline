@@ -43,8 +43,11 @@ def render_html(brand: str, client: Client, s: dict) -> str:
     def row(label, value):
         return f"<tr><td style='padding:6px 12px;color:#555'>{label}</td><td style='padding:6px 12px;font-weight:600'>{value}</td></tr>"
 
+    from ..security import esc
+
     base = get_settings().base_url
-    return (f"<h2 style='font-family:sans-serif'>Your receptionist this week — {client.name}</h2>"
+    brand = esc(brand)
+    return (f"<h2 style='font-family:sans-serif'>Your receptionist this week — {esc(client.name)}</h2>"
             f"<table style='font-family:sans-serif;border-collapse:collapse'>"
             + row("Calls answered", f"{s['answered']} of {s['calls']}")
             + row("After-hours calls caught", s["after_hours"])

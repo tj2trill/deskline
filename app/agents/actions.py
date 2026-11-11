@@ -8,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..models import AgencySettings, AgentAction, Client, EmailDraft, KnowledgeGap
+from ..security import esc, text_to_html
 from .base import utcnow
 
 EXECUTORS: dict[str, tuple[str, Callable[[Session, dict], str]]] = {}
@@ -117,9 +118,9 @@ def _checkout_reminder(db: Session, p: dict) -> str:
         raise ValueError("No checkout link or owner email.")
     a = _agency(db)
     messaging.send_email(c.owner_email, f"Your receptionist for {c.name} is waiting",
-                         f"<p>Hi {c.owner_name or 'there'},</p><p>Your AI receptionist is set up and ready to answer "
-                         f"for {c.name}. Finish signing up here: <a href=\"{c.checkout_url}\">start your subscription</a>.</p>"
-                         f"<p>Questions? Just reply to this email.</p><p>{a.sender_name or a.brand_name}</p>")
+                         f"<p>Hi {esc(c.owner_name or 'there')},</p><p>Your AI receptionist is set up and ready to answer "
+                         f"for {esc(c.name)}. Finish signing up here: <a href=\"{esc(c.checkout_url)}\">start your subscription</a>.</p>"
+                         f"<p>Questions? Just reply to this email.</p><p>{esc(a.sender_name or a.brand_name)}</p>")
     return f"Reminder sent to {c.owner_email}."
 
 
@@ -175,7 +176,7 @@ def _email_owner(db: Session, p: dict) -> str:
     if not c.owner_email:
         raise ValueError("No owner email on file.")
     body = p["body"]
-    messaging.send_email(c.owner_email, p["subject"], "<p>" + body.replace("\n\n", "</p><p>").replace("\n", "<br>") + "</p>", body)
+    messaging.send_email(c.owner_email, p["subject"], text_to_html(body), body)
     return f"Emailed {c.owner_email}."
 
 

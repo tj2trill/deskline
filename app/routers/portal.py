@@ -21,7 +21,7 @@ router = APIRouter(prefix="/portal")
 def _client(request: Request, db: Session, user: User) -> Client:
     if user.is_agency:
         cid = request.query_params.get("client_id") or request.session.get("preview_client")
-        if not cid:
+        if not cid or not str(cid).isdigit():
             raise HTTPException(400, "Agency users: open the portal from a client page (View as owner).")
         request.session["preview_client"] = int(cid)
         c = db.get(Client, int(cid))

@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from ..config import get_settings
 from ..db import get_db
 from ..models import AgencySettings, EventLog, User
-from ..security import admin_user, agency_user, hash_password, verify_password
+from ..security import admin_user, agency_user, hash_password, safe_color, safe_url, verify_password
 from ..services import billing, leads, llm, messaging, vapi
 from ..templating import flash, render
 
@@ -50,7 +50,8 @@ def settings_page(request: Request, db: Session = Depends(get_db)):
     return render(request, "settings.html", agency=agency_settings(db), status=integration_status(), events=events,
                   team=team, outbox=list(reversed(messaging.OUTBOX[-10:])),
                   vapi_webhook=f"{s.base_url}/webhooks/vapi", stripe_webhook=f"{s.base_url}/webhooks/stripe",
-                  inbound_webhook=f"{s.base_url}/webhooks/inbound-email/{s.webhook_token}")
+                  inbound_webhook=(f"{s.base_url}/webhooks/inbound-email/{s.webhook_token}"
+                                   if request.state.user.role == "admin" else ""))
 
 
 @router.post("/settings", dependencies=[Depends(admin_user)])
@@ -70,7 +71,11 @@ def settings_save(request: Request, brand_name: str = Form(...), logo_url: str =
     except Exception:
         flash(request, f"Unknown timezone '{timezone}' — use an IANA name like America/Toronto.", "error")
     a.alert_email, a.margin_alert_pct = alert_email or None, max(1, min(100, margin_alert_pct))
-    a.brand_name, a.logo_url, a.primary_color = brand_name[:120], logo_url or None, primary_color[:20]
+    logo = safe_url(logo_url, schemes=("https", "http"))
+    if logo_url.strip() and not logo:
+        flash(request, "Logo URL must be an https:// link to an image. It was not saved.", "error")
+    a.brand_name, a.logo_url = brand_name.strip()[:120] or a.brand_name, logo or None
+    a.primary_color = safe_color(primary_color, a.primary_color or "#2563eb")
     a.website, a.support_email, a.support_phone = website or None, support_email or None, support_phone or None
     a.mailing_address, a.sender_name = mailing_address or None, sender_name or None
     a.default_monthly_price_cents = round(default_monthly_price * 100)
@@ -132,5 +137,8 @@ def change_password(request: Request, current: str = Form(...), new: str = Form(
     else:
         user.password_hash = hash_password(new)
         db.commit()
+        from ..security import start_session
+
+        start_session(request, user)  # keeps this browser signed in; every other session is now invalid
         flash(request, "Password changed.")
     return RedirectResponse("/portal" if not user.is_agency else "/settings", status_code=303)

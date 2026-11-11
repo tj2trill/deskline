@@ -12,20 +12,20 @@
     <div class="form-grid">
       {{ ui.field('website', 'Website', website, placeholder='acmeplumbing.ca', hint='Recommended. Up to a dozen pages are read.', cls='full', attrs='autofocus inputmode="url"') }}
     </div>
-    <h3 class="section-title">Business</h3>
+    <h2 class="section-title">Business</h2>
     <div class="form-grid">
       {{ ui.field('name', 'Business name', name, hint='Leave blank to use the name on their website.') }}
       {{ ui.field('industry', 'Industry', placeholder='Plumbing, dental clinic…') }}
       {{ ui.field('business_phone', 'Main phone', phone, type='tel') }}
       {{ ui.field('timezone', 'Timezone', 'America/Toronto') }}
     </div>
-    <h3 class="section-title">Owner</h3>
+    <h2 class="section-title">Owner</h2>
     <div class="form-grid">
       {{ ui.field('owner_name', 'Name') }}
       {{ ui.field('owner_email', 'Email', type='email', hint='Gets a summary after every call.') }}
       {{ ui.field('owner_phone', 'Mobile', type='tel') }}
     </div>
-    <h3 class="section-title">Receptionist</h3>
+    <h2 class="section-title">Receptionist</h2>
     <div class="form-grid">
       {{ ui.field('agent_name', 'Receptionist name', 'Ava') }}
       {{ ui.choice('status', 'Start as', [('demo', 'Demo (a prospect, not billed)'), ('active', 'Active client')], 'demo') }}

@@ -143,19 +143,28 @@ def enrich(p: Prospect) -> None:
     score(p)
 
 
+MAX_IMPORT_ROWS = 5000
+
+
 def import_csv(db: Session, text: str, niche: str = "imported") -> ProspectSearch:
     search = ProspectSearch(niche=niche, location="CSV import", source="csv")
     db.add(search)
     db.flush()
+    from ..security import safe_url
+    from .crawler import normalize_url
+
     reader = csv.DictReader(io.StringIO(text))
     for row in reader:
+        if search.result_count >= MAX_IMPORT_ROWS:
+            break
         low = {k.lower().strip(): (v or "").strip() for k, v in row.items() if k}
         name = low.get("name") or low.get("business") or low.get("company")
         if not name:
             continue
         p = Prospect(search_id=search.id, name=name[:200], niche=low.get("niche") or niche,
-                     phone=low.get("phone") or None, website=low.get("website") or low.get("site") or None,
-                     email=low.get("email") or None, address=low.get("address") or None,
+                     phone=(low.get("phone") or "")[:40] or None,
+                     website=safe_url(normalize_url(low.get("website") or low.get("site") or ""))[:300] or None,
+                     email=(low.get("email") or "")[:200] or None, address=(low.get("address") or "")[:300] or None,
                      rating=float(low["rating"]) if low.get("rating", "").replace(".", "", 1).isdigit() else None,
                      review_count=int(low["reviews"]) if low.get("reviews", "").isdigit() else None)
         score(p)
@@ -164,11 +173,19 @@ def import_csv(db: Session, text: str, niche: str = "imported") -> ProspectSearc
     return search
 
 
+def _cell(value):
+    """Business names come from Google Places and imported files. A cell starting with = + - @ runs as a
+    formula when the export is opened in Excel/Sheets, so prefix those with an apostrophe."""
+    if isinstance(value, str) and value[:1] in ("=", "+", "-", "@", "\t", "\r"):
+        return "'" + value
+    return value
+
+
 def to_csv(prospects: list[Prospect]) -> str:
     buf = io.StringIO()
     w = csv.writer(buf)
     w.writerow(["name", "score", "phone", "email", "website", "address", "rating", "reviews", "status", "reasons", "maps_url"])
     for p in prospects:
-        w.writerow([p.name, p.score, p.phone, p.email, p.website, p.address, p.rating, p.review_count, p.status,
-                    "; ".join(p.score_reasons or []), p.maps_url])
+        w.writerow([_cell(v) for v in (p.name, p.score, p.phone, p.email, p.website, p.address, p.rating, p.review_count,
+                                       p.status, "; ".join(p.score_reasons or []), p.maps_url)])
     return buf.getvalue()

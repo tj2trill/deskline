@@ -133,7 +133,9 @@ def _after_booking(db: Session, client: Client, b: Booking, label: str) -> None:
 
 def notify_owner(db: Session, client: Client, subject: str, body: str, link: str | None = None) -> None:
     brand = agency(db).brand_name
-    html = "<p>" + body.replace("\n", "<br>") + "</p>" + (f'<p><a href="{link}">Open in dashboard</a></p>' if link else "")
+    from ..security import esc, text_to_html
+
+    html = text_to_html(body) + (f'<p><a href="{esc(link)}">Open in dashboard</a></p>' if link else "")
     try:
         if client.notify_email and client.owner_email:
             messaging.send_email(client.owner_email, f"[{brand}] {subject}", html, body)
@@ -221,7 +223,9 @@ def alert_agency(db: Session, subject: str, body: str, client_id: int | None = N
     to = a.alert_email or db.scalars(select(User.email).where(User.role == "admin")).first()
     try:
         if to:
-            messaging.send_email(to, f"[{a.brand_name} alert] {subject}", "<p>" + body.replace("\n", "<br>") + "</p>", body)
+            from ..security import text_to_html
+
+            messaging.send_email(to, f"[{a.brand_name} alert] {subject}", text_to_html(body), body)
     except Exception as e:
         eventlog.record(db, "notify", f"Agency alert failed: {e}", client_id=client_id, level="warn")
     eventlog.record(db, "alert", dedupe_key or subject, client_id=client_id, level="warn", subject=subject)

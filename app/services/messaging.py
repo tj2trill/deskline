@@ -54,8 +54,10 @@ def send_sms(to: str, body: str, from_number: str | None = None) -> str:
 def send_email(to: str, subject: str, html: str, text: str | None = None, reply_to: str | None = None,
                headers: dict | None = None) -> str:
     s = get_settings()
-    if not to or "@" not in to:
+    if not to or "@" not in to or any(ch in to for ch in "\r\n,;<> "):
         raise ValueError(f"'{to}' is not a valid email address")
+    subject = re.sub(r"[\r\n]+", " ", subject or "").strip()[:300]
+    reply_to = re.sub(r"[\r\n]+", "", reply_to) if reply_to else reply_to
     text = text or re.sub(r"<[^>]+>", "", html)
     provider = s.email_provider.lower()
     if provider == "resend" and s.resend_api_key:

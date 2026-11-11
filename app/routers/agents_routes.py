@@ -12,7 +12,7 @@ from ..agents.base import MODES
 from ..agents.registry import REGISTRY, TEAM
 from ..db import get_db
 from ..models import AgencySettings, AgentAction, AgentConfig, AgentRun, User
-from ..security import agency_user
+from ..security import agency_user, safe_redirect_path
 from ..templating import flash, render
 
 router = APIRouter(prefix="/agents", dependencies=[Depends(agency_user)])
@@ -118,7 +118,7 @@ def set_mode(request: Request, key: str, mode: str = Form(...), back: str = Form
     if wants_json(request):
         return {"ok": True, "mode": mode, "message": f"{REGISTRY[key].title}: {MODES[mode]}."}
     flash(request, f"{REGISTRY[key].title}: {MODES[mode]}.")
-    return RedirectResponse(back if back.startswith("/agents") else "/agents", status_code=303)
+    return RedirectResponse(safe_redirect_path(back, "/agents", prefix="/agents"), status_code=303)
 
 
 @router.post("/{key}/settings")
@@ -187,7 +187,7 @@ def decide(request: Request, action_id: int, decision: str, back: str = Form("/a
     if wants_json(request):
         return {"ok": kind == "ok", "status": a.status, "message": msg, "agent": a.agent_key, "kind": a.kind}
     flash(request, msg, kind)
-    return RedirectResponse(back if back.startswith("/") and not back.startswith("//") else "/agents", status_code=303)
+    return RedirectResponse(safe_redirect_path(back, "/agents"), status_code=303)
 
 
 @router.post("/actions/approve-all")

@@ -42,7 +42,7 @@
 </div>
 
 <section class="surface"><div class="surface-head"><div><h2>Clients: who makes money</h2><div class="sub">Last 30 days. Billable is what their plan charges for the minutes used; cost is the estimated provider cost.</div></div></div>
-  {% if r.clients %}<div class="table-wrap"><table class="table stackable"><thead><tr><th>Client</th><th>Industry</th><th class="num">Calls</th><th class="num">Billable</th><th class="num">Cost</th><th class="num">Margin</th><th></th></tr></thead>
+  {% if r.clients %}<div class="table-wrap"><table class="table stackable"><thead><tr><th>Client</th><th>Industry</th><th class="num">Calls</th><th class="num">Billable</th><th class="num">Cost</th><th class="num">Margin</th><th><span class="sr-only">Note</span></th></tr></thead>
   <tbody>{% for m in r.clients %}<tr data-href="/clients/{{ m.id }}?tab=billing"><td class="primary-cell" data-label="Client"><a href="/clients/{{ m.id }}?tab=billing">{{ m.name }}</a>{% if not m.paying %}<span class="sub">Not paying yet</span>{% endif %}</td>
     <td data-label="Industry">{{ m.industry|title }}</td><td class="num" data-label="Calls">{{ m.calls }}</td><td class="num" data-label="Billable">{{ m.revenue|money(0) }}</td>
     <td class="num" data-label="Cost">{{ m.cost|money(0) }}</td><td class="num {{ 'text-bad' if m.margin < 0 }}" data-label="Margin">{{ m.margin|money(0) }}</td>
@@ -55,7 +55,7 @@
 </section>
 
 <section class="surface"><div class="surface-head"><div><h2>Search targets</h2><div class="sub">The Prospector searches the best-looking targets first and still tries new ones. Rate shows positive replies with a 90% range.</div></div></div>
-  {% if r.targets %}<div class="table-wrap"><table class="table stackable"><thead><tr><th>Target</th><th class="num">Searches</th><th class="num">Found</th><th class="num">Emailed</th><th class="num">Positive</th><th>Rate</th><th class="num">Paying</th><th class="num">Monthly</th><th></th></tr></thead>
+  {% if r.targets %}<div class="table-wrap"><table class="table stackable"><thead><tr><th>Target</th><th class="num">Searches</th><th class="num">Found</th><th class="num">Emailed</th><th class="num">Positive</th><th>Rate</th><th class="num">Paying</th><th class="num">Monthly</th><th><span class="sr-only">Note</span></th></tr></thead>
   <tbody>{% for t in r.targets %}<tr><td class="primary-cell" data-label="Target">{{ t.label }}</td><td class="num" data-label="Searches">{{ t.searches }}</td><td class="num" data-label="Found">{{ t.leads }}</td><td class="num" data-label="Emailed">{{ t.n }}</td>
     <td class="num" data-label="Positive">{{ t.pos }}</td><td data-label="Rate">{{ rate(t) }}</td><td class="num" data-label="Paying">{{ t.paying }}</td><td class="num" data-label="Monthly">{{ t.mrr|money(0) }}</td><td data-label="">{{ verdict(t.verdict) }}</td></tr>{% endfor %}</tbody></table></div>
   {% else %}{{ ui.empty('search', 'No searches yet', 'Add targets to the Prospector.', '/agents/prospector', 'Add targets') }}{% endif %}
@@ -63,14 +63,14 @@
 
 <div class="layout two">
   <section class="surface"><div class="surface-head"><div><h2>Email angles</h2><div class="sub">Each prospect gets one opening angle. Outreach picks angles that earn replies in that niche, and keeps testing the others.</div></div></div>
-    {% if r.angles %}<div class="table-wrap"><table class="table stackable"><thead><tr><th>Angle</th><th class="num">Sent</th><th class="num">Positive</th><th>Rate</th><th class="num">Unsub.</th><th></th></tr></thead>
+    {% if r.angles %}<div class="table-wrap"><table class="table stackable"><thead><tr><th>Angle</th><th class="num">Sent</th><th class="num">Positive</th><th>Rate</th><th class="num">Unsub.</th><th><span class="sr-only">Note</span></th></tr></thead>
     <tbody>{% for a in r.angles %}<tr><td class="primary-cell" data-label="Angle">{{ a.label }}</td><td class="num" data-label="Sent">{{ a.n }}</td><td class="num" data-label="Positive">{{ a.pos }}</td><td data-label="Rate">{{ rate(a) }}</td><td class="num" data-label="Unsub.">{{ a.unsub }}</td><td data-label="">{{ verdict(a.verdict) }}</td></tr>{% endfor %}</tbody></table></div>
     {% else %}{{ ui.empty('send', 'No emails sent yet') }}{% endif %}
   </section>
   <section class="surface"><div class="surface-head"><h2>Demo line, lead score, send time</h2></div>
     {% set rows = [] %}{% for d in r.demo %}{% set _ = rows.append(('Demo line', 'With a demo line' if d.key == 'with' else 'Without', d)) %}{% endfor %}
     {% for d in r.scores %}{% set _ = rows.append(('Lead score', d.label, d)) %}{% endfor %}{% for d in r.timing %}{% set _ = rows.append(('Sent', d.label, d)) %}{% endfor %}
-    {% if rows %}<div class="table-wrap"><table class="table stackable"><thead><tr><th>Group</th><th class="num">Sent</th><th>Rate</th><th></th></tr></thead>
+    {% if rows %}<div class="table-wrap"><table class="table stackable"><thead><tr><th>Group</th><th class="num">Sent</th><th>Rate</th><th><span class="sr-only">Note</span></th></tr></thead>
     <tbody>{% for g, label, d in rows %}<tr><td class="primary-cell" data-label="Group">{{ label }}<span class="sub">{{ g }}</span></td><td class="num" data-label="Sent">{{ d.n }}</td><td data-label="Rate">{{ rate(d) }}</td><td data-label="">{% if g != 'Demo line' %}{{ verdict(d.verdict) }}{% endif %}</td></tr>{% endfor %}</tbody></table></div>
     {% else %}{{ ui.empty('lightbulb', 'Nothing to compare yet') }}{% endif %}
   </section>

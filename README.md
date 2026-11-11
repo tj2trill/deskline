@@ -179,6 +179,15 @@ Every action has a dedupe key, so re-runs never repeat work and a rejected propo
 - **Cold email:** CASL (Canada) and CAN-SPAM (US) need sender ID, a mailing address and a working unsubscribe. All three are built in; set your mailing address in Settings. CASL also restricts who you may email without consent. Implied consent for conspicuously published business addresses is narrow, so check it applies.
 - **Data:** recordings and transcripts may contain personal information. Disclose this in your client agreement.
 
+## Security defaults
+
+- **Secrets:** on any non-localhost `BASE_URL` the app refuses to start while `SECRET_KEY` or the first `ADMIN_PASSWORD` is still a placeholder from `.env.example`. `SECRET_KEY` signs sessions and derives the webhook token.
+- **Sessions:** changing a password signs out every other session of that user. Sign-in is throttled (8 failures per address and email, 30 per address, per 10 minutes).
+- **Browser guards:** state-changing requests from another origin are refused (Origin / Sec-Fetch-Site check on top of SameSite=Lax cookies). Pages ship a Content-Security-Policy with no inline scripts, `frame-ancestors 'none'`, `nosniff`, and `no-store` on signed-in HTML. HSTS is sent when `SECURE_COOKIES=true`.
+- **Untrusted text:** anything a caller, a website or an imported file supplied is escaped in pages and in outbound email; links only render with `http(s)`; CSV exports neutralise spreadsheet formulas.
+- **Outbound requests** to user-supplied URLs (crawler, webhooks, custom functions) are refused unless every address the host resolves to is publicly routable, and redirects are re-checked hop by hop.
+- **Reverse proxy:** the container trusts `X-Forwarded-*` from any peer so it works behind Caddy. Do not expose port 8000 to the internet directly; publish only the proxy.
+
 ## Known limits
 
 - One business-hours span per day in the UI. For split shifts, describe them in *Extra instructions*.

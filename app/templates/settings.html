@@ -3,9 +3,12 @@
 {% block title %}Settings – {{ brand.brand_name }}{% endblock %}
 {% block content %}
 <div class="page-head"><div><h1>Settings</h1><p class="lede">Your brand, defaults for new clients, connected services and team.</p></div></div>
+{% set is_admin = user.role == 'admin' %}
+{% if not is_admin %}<div class="callout" data-tone="brand">{{ ui.icon('shield') }}<span>You can view these settings. Only an admin can change the brand, defaults, team and webhooks.</span></div>{% endif %}
 <div class="layout main-side">
   <div class="stack">
     <form class="surface" method="post" action="/settings" data-track>
+      <fieldset class="plain" {{ 'disabled' if not is_admin }}>
       <div class="surface-head"><div><h2>Brand</h2><div class="sub">Clients and their customers only ever see this brand.</div></div></div>
       <div class="surface-body">
         <div class="form-grid">
@@ -34,7 +37,8 @@
           {{ ui.field('daily_email_cap', 'Cold emails per day', agency.daily_email_cap, type='number', hint='Protects your sending domain.') }}
         </div>
       </div>
-      <div class="surface-foot">{{ ui.save() }}</div>
+      {% if is_admin %}<div class="surface-foot">{{ ui.save() }}</div>{% endif %}
+      </fieldset>
     </form>
     <section class="surface"><div class="surface-head"><h2>Team</h2></div>
       <ul class="rows">{% for u in team %}<li><span class="avatar">{{ (u.name or u.email)|initials }}</span><span class="grow"><span class="title">{{ u.email }}</span><span class="meta">{{ u.role|capitalize }}</span></span>
@@ -55,7 +59,7 @@
         <span class="label">Stripe webhook</span>{{ ui.copy_field(stripe_webhook) }}
         <span class="hint small muted">Events: checkout.session.completed, customer.subscription.created, customer.subscription.updated, customer.subscription.deleted, invoice.paid, invoice.payment_failed</span>
         <span class="label">Vapi webhook</span>{{ ui.copy_field(vapi_webhook) }}<span class="hint small muted">Set on every assistant and number automatically.</span>
-        <span class="label">Inbound reply webhook</span>{{ ui.copy_field(inbound_webhook) }}<span class="hint small muted">Point your inbound mail provider (Postmark, SendGrid Inbound Parse, Mailgun) here and set INBOUND_REPLY_TO to that mailbox. Replies are then sorted automatically and the Strategist learns from them. Keep this URL private.</span>
+        {% if is_admin %}<span class="label">Inbound reply webhook</span>{{ ui.copy_field(inbound_webhook) }}<span class="hint small muted">Point your inbound mail provider (Postmark, SendGrid Inbound Parse, Mailgun) here and set INBOUND_REPLY_TO to that mailbox. Replies are then sorted automatically and the Strategist learns from them. Keep this URL private.</span>{% endif %}
       </div>
     </section>
     <section class="surface"><div class="surface-head"><h2>Test delivery</h2></div>

@@ -122,8 +122,10 @@ def email_sequence(agency: AgencySettings, p: Prospect, demo_number: str | None 
 def email_footer(agency: AgencySettings, unsubscribe_url: str) -> tuple[str, str]:
     addr = agency.mailing_address or ""
     text = f"\n\n--\n{agency.brand_name}{', ' + addr if addr else ''}\nDon't want these emails? {unsubscribe_url}"
-    html = (f'<p style="color:#888;font-size:12px;margin-top:24px">{agency.brand_name}{", " + addr if addr else ""}<br>'
-            f'<a href="{unsubscribe_url}">Unsubscribe</a></p>')
+    from ..security import esc
+
+    html = (f'<p style="color:#888;font-size:12px;margin-top:24px">{esc(agency.brand_name)}{", " + esc(addr) if addr else ""}<br>'
+            f'<a href="{esc(unsubscribe_url)}">Unsubscribe</a></p>')
     return text, html
 
 

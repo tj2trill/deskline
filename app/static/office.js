@@ -1284,9 +1284,9 @@
     const want = S.snap.agents.map((a) => a.key).join(",");
     if (box.dataset.keys !== want) {
       box.dataset.keys = want;
-      box.replaceChildren(...S.snap.agents.map((a) => el("button", { type: "button", role: "listitem", "data-key": a.key, onclick: () => openPanel({ type: "agent", key: a.key }) },
+      box.replaceChildren(...S.snap.agents.map((a) => el("button", { type: "button", "data-key": a.key, onclick: () => openPanel({ type: "agent", key: a.key }) },
         el("span", { class: "lamp" }), el("span", { class: "nm" }), el("span", { class: "st" }))));
-      const desk = el("button", { type: "button", role: "listitem", "data-desk": "1", onclick: () => openPanel({ type: "desk" }) }, el("span", { class: "lamp" }), el("span", { class: "nm" }, "Your desk"), el("span", { class: "st" }));
+      const desk = el("button", { type: "button", "data-desk": "1", onclick: () => openPanel({ type: "desk" }) }, el("span", { class: "lamp" }), el("span", { class: "nm" }, "Your desk"), el("span", { class: "st" }));
       box.append(desk);
     }
     for (const b of box.querySelectorAll("button[data-key]")) {

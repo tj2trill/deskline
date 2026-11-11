@@ -62,7 +62,9 @@ def send_draft(db: Session, agency: AgencySettings, draft: EmailDraft) -> str:
     check(db, agency, prospect, draft)
     unsub = unsubscribe_link(prospect.email)
     text_footer, html_footer = writer.email_footer(agency, unsub)
-    html = "<p>" + draft.body.replace("\n\n", "</p><p>").replace("\n", "<br>") + "</p>" + html_footer
+    from ..security import text_to_html
+
+    html = text_to_html(draft.body) + html_footer
     from ..config import get_settings
 
     reply_to = get_settings().inbound_reply_to or agency.support_email

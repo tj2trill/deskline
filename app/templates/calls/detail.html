@@ -18,7 +18,7 @@
 <div class="layout main-side">
   <section class="surface">
     <div class="surface-head"><h2>Conversation</h2>{% if call.from_number %}<a class="btn sm" href="tel:{{ call.from_number }}">{{ ui.icon('phone') }}Call back</a>{% endif %}</div>
-    {% if call.recording_url %}<div class="recording"><audio controls preload="none" src="{{ call.recording_url }}"></audio></div>{% endif %}
+    {% if call.recording_url %}<div class="recording"><audio controls preload="none" src="{{ call.recording_url|safe_url }}"></audio></div>{% endif %}
     {% set convo = call.transcript|turns %}
     {% if convo %}<div class="convo">{% for t in convo %}
       <div class="turn {{ t.who }}"><span class="who">{{ (client.agent.name if client and client.agent else 'Receptionist') if t.who == 'agent' else ('Caller' if t.who == 'caller' else '') }}</span><div class="bubble">{{ t.text }}</div></div>{% endfor %}</div>
