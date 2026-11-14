@@ -7,6 +7,7 @@ from __future__ import annotations
 import csv
 import io
 import re
+from urllib.parse import urlparse
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -21,6 +22,20 @@ FIELD_MASK = ",".join([
     "places.internationalPhoneNumber", "places.websiteUri", "places.rating", "places.userRatingCount",
     "places.regularOpeningHours", "places.businessStatus", "places.types", "places.googleMapsUri", "nextPageToken",
 ])
+# A Google "website" that is really a social or booking profile: the business still has no site of its own,
+# so it stays a lead (website upsell) and the profile is kept as another way to reach them.
+SOCIAL_HOSTS = {"facebook.com": "Facebook", "fb.com": "Facebook", "fb.me": "Facebook", "instagram.com": "Instagram",
+                "tiktok.com": "TikTok", "twitter.com": "X", "x.com": "X", "linktr.ee": "Linktree",
+                "linkedin.com": "LinkedIn", "youtube.com": "YouTube", "yelp.ca": "Yelp", "yelp.com": "Yelp"}
+
+
+def social_site(url: str | None) -> str | None:
+    """'Facebook' when the URL is a social profile rather than a real website, else None."""
+    host = (urlparse(url or "").hostname or "").lower()
+    host = host[4:] if host.startswith("www.") else host[2:] if host.startswith("m.") else host
+    return next((name for h, name in SOCIAL_HOSTS.items() if host == h or host.endswith("." + h)), None)
+
+
 # Call-driven niches where a missed call is a lost job.
 HIGH_VALUE = ["plumb", "hvac", "heating", "air condition", "roof", "electric", "locksmith", "garage door", "pest",
               "dent", "orthodont", "chiropract", "vet", "law", "attorney", "lawyer", "auto repair", "mechanic",
@@ -135,6 +150,35 @@ def search_places(query: str, max_results: int = 60) -> list[dict]:
     return out[:max_results]
 
 
+DETAILS_URL = "https://places.googleapis.com/v1/places/"
+# Billed per lead at Google's Enterprise + Atmosphere rate (reviews), so it runs once per lead, not per search result.
+DETAILS_MASK = "priceRange,reviews"
+
+
+def place_details(place_id: str) -> dict:
+    """Real data Google holds on one business: its price range and up to 5 reviews."""
+    key = get_settings().google_places_api_key
+    if not key:
+        raise http.NotConfigured("Set GOOGLE_PLACES_API_KEY (Places API (New) enabled).")
+    with http.client(timeout=20, headers={"X-Goog-Api-Key": key, "X-Goog-FieldMask": DETAILS_MASK}) as c:
+        data = http.check("Google Places", c.get(DETAILS_URL + place_id)).json()
+    pr = data.get("priceRange") or {}
+    price = {k: int((pr.get(f"{k}Price") or {}).get("units") or 0) or None for k in ("start", "end")}
+    price["currency"] = (pr.get("startPrice") or pr.get("endPrice") or {}).get("currencyCode")
+    reviews = [{"rating": r.get("rating"), "when": r.get("relativePublishTimeDescription"),
+                "text": ((r.get("text") or r.get("originalText") or {}).get("text") or "")[:1500]}
+               for r in data.get("reviews") or []]
+    return {"price": price if price["start"] or price["end"] else None, "reviews": reviews}
+
+
+def needs_details(p: Prospect) -> bool:
+    return bool(p.place_id and configured() and "places" not in (p.signals or {}))
+
+
+def fetch_details(p: Prospect) -> None:
+    p.signals = {**(p.signals or {}), "places": place_details(p.place_id)}
+
+
 def _closes_early_or_weekends(hours: list[str]) -> list[str]:
     reasons = []
     text = " ".join(hours).lower()
@@ -171,7 +215,9 @@ def score(p: Prospect) -> None:
         why.append(r)
     if not p.website:
         pts += 10
-        why.append("No website, so a website is an easy add-on sale")
+        social = (p.signals or {}).get("social")
+        why.append(f"Only a {social['name']} page, no website: a website is an easy add-on sale" if social
+                   else "No website, so a website is an easy add-on sale")
     sig = p.signals or {}
     if p.enriched:
         if sig.get("chat_widgets"):
@@ -237,7 +283,8 @@ def fill_search(db: Session, search: ProspectSearch, commit_each_city: bool = Fa
                 continue
             if pl.get("id") in seen:
                 continue
-            if pl.get("websiteUri"):  # prospecting targets businesses with no website
+            site = pl.get("websiteUri")
+            if site and not social_site(site):  # prospecting targets businesses with no website of their own
                 continue
             if excluded(pl.get("formattedAddress")):
                 continue
@@ -247,7 +294,8 @@ def fill_search(db: Session, search: ProspectSearch, commit_each_city: bool = Fa
                          address=pl.get("formattedAddress"),
                          rating=pl.get("rating"), review_count=pl.get("userRatingCount"),
                          maps_url=pl.get("googleMapsUri"), types=pl.get("types") or [],
-                         hours=(pl.get("regularOpeningHours") or {}).get("weekdayDescriptions") or [])
+                         hours=(pl.get("regularOpeningHours") or {}).get("weekdayDescriptions") or [],
+                         signals={"social": {"url": site, "name": social_site(site)}} if site else {})
             score(p)
             db.add(p)
             seen.add(p.place_id)
@@ -267,7 +315,10 @@ def run_search(db: Session, niche: str, location: str) -> ProspectSearch:
 
 
 def enrich(p: Prospect) -> None:
-    """Visit the prospect's site: find a contact email, chat widgets, online booking."""
+    """Pull Google's price range and reviews, then visit the prospect's site: find a contact email, chat widgets,
+    online booking."""
+    if needs_details(p):
+        fetch_details(p)
     if not p.website:
         p.enriched = True
         score(p)

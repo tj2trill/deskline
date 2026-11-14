@@ -8,6 +8,7 @@
     <div class="meta">
       {% if p.phone %}<a class="cluster" href="tel:{{ p.phone }}">{{ ui.icon('phone') }}{{ p.phone|phone }}</a>{% endif %}
       {% if p.website %}<a class="cluster" href="{{ p.website }}" target="_blank" rel="noopener">{{ ui.icon('globe') }}Website</a>{% endif %}
+      {% if p.signals.get('social') %}<a class="cluster" href="{{ p.signals.social.url }}" target="_blank" rel="noopener">{{ ui.icon('external') }}{{ p.signals.social.name }}</a>{% endif %}
       {% if p.maps_url %}<a class="cluster" href="{{ p.maps_url }}" target="_blank" rel="noopener">{{ ui.icon('external') }}Google Maps</a>{% endif %}
       {% if p.address %}<span>{{ p.address }}</span>{% endif %}
     </div>
@@ -31,7 +32,7 @@
       <div class="surface-head"><h2>Pipeline</h2></div>
       <div class="surface-body form-grid">
         {{ ui.choice('status', 'Stage', [('new','New'),('contacted','Contacted'),('replied','Replied'),('demo','Demo'),('won','Won'),('lost','Lost')], p.status) }}
-        {{ ui.field('email', 'Email', p.email or '', type='email') }}
+        {{ ui.field('email', 'Email', p.email or '', type='email', placeholder=('None found on their website. Ask on the call' if p.website else ('Check their ' ~ p.signals.social.name ~ ' page, or ask on the call') if p.signals.get('social') else 'Not public: No website to find one on. Ask on the call')) }}
         {{ ui.area('notes', 'Notes', p.notes or '', cls='full') }}
       </div>
       <div class="surface-foot">{{ ui.save() }}</div>
@@ -71,8 +72,8 @@
     <form class="surface" method="post" action="/prospects/{{ p.id }}/proposal">
       <div class="surface-head"><div><h2>Proposal</h2><div class="sub">Ask them how many calls they miss. The ROI is calculated from their answer.</div></div></div>
       <div class="surface-body form-grid">
-        {{ ui.field('missed_calls_per_week', 'Missed calls a week', 10, type='number') }}
-        {{ ui.field('avg_job_value', 'Average job value ($)', 300, type='number') }}
+        {{ ui.field('missed_calls_per_week', 'Missed calls a week', est.missed_calls_per_week, type='number', hint='Estimated from their reviews and hours. Use their answer.') }}
+        {{ ui.field('avg_job_value', 'Average job value ($)', est.avg_job_value, type='number') }}
         {{ ui.field('close_rate', 'Close rate (0–1)', 0.3, type='number', attrs='step="0.05"') }}
         {{ ui.field('monthly_price', 'Monthly price ($)', agency.default_monthly_price_cents|dollars, type='number', attrs='step="0.01"') }}
         {{ ui.field('setup_fee', 'Setup fee ($)', agency.default_setup_fee_cents|dollars, type='number', attrs='step="0.01"') }}

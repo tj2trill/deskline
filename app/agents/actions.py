@@ -93,6 +93,12 @@ def _called(db: Session, p: dict) -> str:
         raise ValueError("The prospect no longer exists.")
     if prospect.status in ("new", "demo"):
         prospect.status = "contacted"
+    email = (p.get("email") or "").strip().lower()
+    if email:
+        prospect.email = email
+        prospect.signals = {**(prospect.signals or {}), "asked_on_call": utcnow().isoformat()}
+        return (f"Marked {prospect.name} as called and saved {email}. "
+                "Outreach will send them the demo emails on its next run.")
     return f"Marked {prospect.name} as called. Set them to replied or won in Lead finder when they answer."
 
 

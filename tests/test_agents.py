@@ -106,3 +106,38 @@ def test_no_website_prospect_gets_a_listing_demo_then_lands_on_the_call_list(net
     a = runner.decide(db, a.id, approve=True, who="me")
     db.expire_all()
     assert a.status == "done" and db.query(Prospect).one().status == "contacted"
+
+
+def test_email_from_a_call_gets_the_demo_as_promised_not_a_cold_pitch(net, db):
+    """Called + an email typed in: Outreach sends 'the demo, as promised' with the demo site, even with require_demo
+    on and no demo number, and the learning loop doesn't count it as a cold email."""
+    from app.agents import runner
+    from app.models import AgentAction, EmailDraft, Prospect, Site
+    from app.services import learning
+
+    cfgs = _setup(db, agents_enabled=True, mailing_address="1 Main St")
+    cfgs["outreach"].settings = {"require_demo": True, "window_start": "00:00", "window_end": "23:59", "weekdays_only": False}
+    db.add(Prospect(name="Bayfront Drain Pros", niche="plumber", phone="+19055550123", address="1 Bay St, Hamilton, ON",
+                    hours=["Monday: 8:00 AM - 5:00 PM"], rating=4.8, review_count=31, score=90))
+    db.commit()
+    runner.run_agent("demo_builder", "manual")
+    runner.run_agent("outreach", "manual")
+    db.expire_all()
+    a = db.query(AgentAction).filter_by(kind="call_prospect").one()
+    assert "What email should I send the link to?" in a.detail
+    a.payload = {**a.payload, "email": "owner@bayfront.test"}
+    db.commit()
+    runner.decide(db, a.id, approve=True, who="me")
+
+    run = runner.run_agent("outreach", "manual")
+    db.expire_all()
+    p = db.query(Prospect).one()
+    site = db.query(Site).filter_by(client_id=p.client_id).one()
+    drafts = db.query(EmailDraft).filter_by(prospect_id=p.id).order_by(EmailDraft.step).all()
+    assert [d.step for d in drafts] == [1, 2, 3]
+    assert drafts[0].subject == "The demo for Bayfront Drain Pros, as promised"
+    assert "Thanks for taking my call" in drafts[0].body and f"/s/{site.slug}" in drafts[0].body
+    assert p.angle is None and any("sending the demo they asked for on the call" in str(x) for x in (run.log or []))
+    assert db.query(AgentAction).filter_by(kind="send_email_draft").count() == 1
+    fact = next(f for f in learning.facts(db) if f.id == p.id)
+    assert fact.has_email and not fact.contacted

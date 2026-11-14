@@ -11,7 +11,7 @@ from ..config import get_settings
 from ..db import get_db
 from ..models import Client, EmailDraft, Proposal, Prospect, ProspectSearch, Site, Suppression
 from ..security import agency_user
-from ..services import http, leads, pricing, sitegen, writer
+from ..services import http, leads, opportunity, pricing, sitegen, writer
 from ..templating import flash, render
 from .settings_routes import agency_settings
 
@@ -115,8 +115,18 @@ def prospect_detail(request: Request, pid: int, db: Session = Depends(get_db)):
     site = db.scalars(select(Site).where(Site.prospect_id == p.id)).first()
     client = db.get(Client, p.client_id) if p.client_id else None
     suppressed = bool(p.email and db.scalars(select(Suppression).where(Suppression.email == p.email.lower())).first())
+    agency = agency_settings(db)
+    if leads.needs_details(p):  # once per lead: Google's price range and reviews feed the brief
+        try:
+            leads.fetch_details(p)
+            leads.score(p)
+            db.commit()
+        except http.ProviderError as e:
+            flash(request, f"Couldn't load their Google reviews and prices: {e}", "error")
+    if opportunity.fill_blanks(p, agency.default_monthly_price_cents):
+        db.commit()
     return render(request, "leads/prospect.html", p=p, emails=emails, proposals=proposals, site=site, client=client,
-                  suppressed=suppressed, agency=agency_settings(db))
+                  suppressed=suppressed, agency=agency, est=opportunity.estimate(p, agency.default_monthly_price_cents))
 
 
 @router.post("/prospects/{pid}/update")
@@ -178,14 +188,11 @@ def prospect_enrich(request: Request, pid: int, db: Session = Depends(get_db)):
 def emails_generate(request: Request, pid: int, db: Session = Depends(get_db)):
     p = _prospect(db, pid)
     client = db.get(Client, p.client_id) if p.client_id else None
-    demo = client.numbers[0].number if client and client.numbers else None
     for d in db.scalars(select(EmailDraft).where(EmailDraft.prospect_id == p.id, EmailDraft.status == "draft")):
         db.delete(d)
-    from ..services import learning
+    from ..services import outreach
 
-    angle = learning.AngleModel(db).choose(p.niche, demo)
-    p.angle, p.contacted_with_demo = angle, bool(demo)
-    for e in writer.email_sequence(agency_settings(db), p, demo, angle=angle):
+    for e in outreach.write_sequence(db, agency_settings(db), p, client):
         db.add(EmailDraft(prospect_id=p.id, step=e["step"], send_after_days=e["days"], subject=e["subject"], body=e["body"]))
     db.commit()
     flash(request, "Draft sequence ready — review before sending.")

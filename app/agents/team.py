@@ -11,7 +11,8 @@ from sqlalchemy import func, or_, select
 from ..models import (AgentAction, AgentConfig, AgentRun, Booking, Call, Client, Contact, EmailDraft, EventLog,
                       KnowledgeGap, Prospect, ProspectSearch, Site, User)
 from ..config import get_settings
-from ..services import agent_builder, billing, http, leads, learning, llm, outreach, provisioning, sitegen, vapi, writer
+from ..services import (agent_builder, billing, http, leads, learning, llm, opportunity, outreach, provisioning, sitegen,
+                        vapi, writer)
 from .base import Agent, RunContext, aware
 
 
@@ -73,8 +74,7 @@ class Prospector(Agent):
             ctx.log(f"Searched {niche} in {location}: {s.result_count} new businesses without a website")
             searched += 1
             ctx.commit()
-        todo = ctx.db.scalars(select(Prospect).where(Prospect.enriched.is_(False), Prospect.website.is_not(None),
-                                                     Prospect.status == "new")
+        todo = ctx.db.scalars(select(Prospect).where(Prospect.enriched.is_(False), Prospect.status == "new")
                               .order_by(Prospect.score.desc()).limit(ctx.settings["enrich_top"])).all()
         for p in todo:
             try:
@@ -166,15 +166,15 @@ class Outreach(Agent):
                 continue
             client = ctx.db.get(Client, p.client_id) if p.client_id else None
             demo_number = next((n.number for n in client.numbers if n.number), None) if client else None
-            if st["require_demo"] and not demo_number:
+            if st["require_demo"] and not demo_number and not outreach.asked_on_call(p):  # they asked: send what exists
                 continue
             if not ctx.db.scalars(select(EmailDraft.id).where(EmailDraft.prospect_id == p.id)).first():
-                if angles is None:
+                if angles is None and not outreach.asked_on_call(p):
                     angles = learning.AngleModel(ctx.db)
-                angle = angles.choose(p.niche, demo_number)
-                p.angle, p.contacted_with_demo = angle, bool(demo_number)
-                ctx.log(f"{p.name}: writing the '{writer.ANGLE_LABELS[angle]}' angle")
-                for e in writer.email_sequence(a, p, demo_number, angle=angle):
+                seq = outreach.write_sequence(ctx.db, a, p, client, angle_model=angles)
+                ctx.log(f"{p.name}: " + (f"writing the '{writer.ANGLE_LABELS[p.angle]}' angle" if p.angle
+                                         else "sending the demo they asked for on the call"))
+                for e in seq:
                     ctx.db.add(EmailDraft(prospect_id=p.id, step=e["step"], send_after_days=e["days"],
                                           subject=e["subject"], body=e["body"]))
                 ctx.stats["sequences_written"] += 1
@@ -207,6 +207,9 @@ class Outreach(Agent):
             lines = [f"Phone: {p.phone}", f"Address: {p.address or '-'}"]
             if p.maps_url:
                 lines.append(f"Google listing: {p.maps_url}")
+            social = (p.signals or {}).get("social")
+            if social:
+                lines.append(f"Their {social['name']} page: {social['url']}")
             if site:
                 lines.append(f"Their demo website: {base}/s/{site.slug}")
             if demo_number:
@@ -215,8 +218,12 @@ class Outreach(Agent):
                      else "I built a demo for your business")
             lines.append(f"\nWhat to say: \"Hi, is this {p.name}? {pitch}"
                          + (" and an AI receptionist that answers your calls when you can't" if demo_number else "")
-                         + ". Can I text you the link to take a look? No cost to see it.\"")
-            lines.append("\nTap Called once you've phoned them, or Skip to drop them.")
+                         + ". What email should I send the link to? No cost to take a look.\"")
+            opportunity.fill_blanks(p, ctx.agency.default_monthly_price_cents)
+            est = opportunity.estimate(p, ctx.agency.default_monthly_price_cents)
+            lines.append(f"\nAt stake: about {est['missed_calls_per_week']} missed calls/week, roughly "
+                         f"${est['recovered_per_month']:,.0f}/month in lost jobs (estimate; the full brief is in their Notes).")
+            lines.append("\nType the email they give you and tap Called, or Skip to drop them.")
             if ctx.act("call_prospect", f"Call {p.name} at {p.phone}", {"prospect_id": p.id, "phone": p.phone}, dedupe=f"call:{p.id}",
                        detail="\n".join(lines), prospect_id=p.id, client_id=p.client_id, manual=True):
                 ctx.stats["calls_listed"] += 1

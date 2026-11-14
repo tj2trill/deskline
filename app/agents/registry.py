@@ -10,7 +10,7 @@ TEAM = [
         knobs=[
             Knob("targets", "What to search", "lines", [], "One per line: type of business | city. For example: plumber | Hamilton, ON. Leave empty and it chooses its own: call-driven trades across Canada."),
             Knob("searches_per_run", "Searches per day", "int", 2, "Each search returns up to 60 businesses."),
-            Knob("enrich_top", "Websites to check per day", "int", 15, "Finds emails, chat widgets and online booking."),
+            Knob("enrich_top", "Leads to research per day", "int", 15, "Pulls Google price range and reviews (billed per lead), and checks any website for emails, chat widgets and online booking."),
             Knob("research_after_days", "Search the same place again after (days)", "int", 30),
             Knob("retired", "Retired targets", "lines", [], "Targets the Strategist found don't work. Move a line back up to try it again."),
         ]),

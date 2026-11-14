@@ -8,7 +8,7 @@
           {% if a.status not in ['pending'] %}<span>{{ {'done':'Done','failed':'Failed','rejected':'Rejected','approved':'Approved, waiting'}[a.status] }}{% if a.decided_by %} by {{ 'Autopilot' if a.decided_by.startswith('autopilot') else a.decided_by }}{% endif %}</span>{% endif %}</span></span></span>
     {% if a.status == 'pending' %}<span class="end">
       <form method="post" action="/agents/actions/{{ a.id }}/reject"><input type="hidden" name="back" value="{{ back }}"><button class="btn ghost sm" type="submit">{{ 'Skip' if a.kind == 'call_prospect' else 'Reject' }}</button></form>
-      <form method="post" action="/agents/actions/{{ a.id }}/approve"><input type="hidden" name="back" value="{{ back }}"><button class="btn primary sm" type="submit">{{ ui.icon('check') }}{{ 'Called' if a.kind == 'call_prospect' else 'Approve' }}</button></form></span>
+      <form method="post" action="/agents/actions/{{ a.id }}/approve" class="cluster"><input type="hidden" name="back" value="{{ back }}">{% if a.kind == 'call_prospect' %}<label class="sr-only" for="email-{{ a.id }}">Email they gave you</label><input id="email-{{ a.id }}" name="email" type="email" placeholder="Email they gave you (optional)" autocomplete="off">{% endif %}<button class="btn primary sm" type="submit">{{ ui.icon('check') }}{{ 'Called' if a.kind == 'call_prospect' else 'Approve' }}</button></form></span>
     {% elif a.status == 'failed' %}<span class="end"><form method="post" action="/agents/actions/{{ a.id }}/retry"><input type="hidden" name="back" value="{{ back }}"><button class="btn sm" type="submit">{{ ui.icon('refresh') }}Retry</button></form></span>{% endif %}
   </div>
   {% if a.detail or a.result %}<details class="mt-s"><summary class="small muted">Details</summary>

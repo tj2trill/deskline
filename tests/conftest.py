@@ -29,6 +29,7 @@ class FakeInternet:
         self.requests: list[httpx.Request] = []
         self.llm_queue: list[dict] = []  # scripted LLM replies (message dicts)
         self.places: list[dict] = []
+        self.place_details: dict = {}  # Place Details (price range, reviews)
         self.opted_out: set[str] = set()  # numbers Twilio refuses with 21610
         self.twilio_calls: list[dict] = []  # Twilio's call log, for the reconcile sweep
         self.counter = 0
@@ -88,6 +89,8 @@ class FakeInternet:
                 return httpx.Response(400, json={"code": 21610, "message": "Attempt to send to unsubscribed recipient (21610)"})
             return httpx.Response(201, json={"sid": f"SM{self.counter}"})
         if host == "places.googleapis.com":
+            if request.method == "GET" and path.startswith("/v1/places/"):
+                return httpx.Response(200, json=self.place_details)
             return httpx.Response(200, json={"places": self.places})
         if host == "api.cal.com":
             if path == "/v2/slots":
