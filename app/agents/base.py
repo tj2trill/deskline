@@ -88,8 +88,9 @@ class RunContext:
         return self.db.scalars(select(AgentAction.id).where(AgentAction.dedupe_key == dedupe)).first() is not None
 
     def act(self, kind: str, title: str, payload: dict, *, dedupe: str, detail: str | None = None,
-            client_id: int | None = None, prospect_id: int | None = None) -> AgentAction | None:
-        """Queue (Ask me first) or execute (Autopilot) an outside-world action, once per dedupe key."""
+            client_id: int | None = None, prospect_id: int | None = None, manual: bool = False) -> AgentAction | None:
+        """Queue (Ask me first) or execute (Autopilot) an outside-world action, once per dedupe key.
+        `manual` actions are something a person does (a phone call); they are always queued, even on Autopilot."""
         from . import actions
 
         if self.already(dedupe):
@@ -99,13 +100,13 @@ class RunContext:
                              client_id=client_id, prospect_id=prospect_id)
         self.db.add(action)
         self.commit()
-        if self.mode == "auto":
+        if self.mode == "auto" and not manual:
             actions.execute(self.db, action, decided_by=f"autopilot:{self.agent.key}")
             self.stats["done" if action.status == "done" else "failed"] += 1
             self.log(f"{'Did' if action.status == 'done' else 'Failed'}: {title}" + (f" ({action.result})" if action.result else ""))
         else:
             self.stats["queued"] += 1
-            self.log(f"Asked for approval: {title}")
+            self.log(f"Added to your list: {title}" if manual else f"Asked for approval: {title}")
         return action
 
 

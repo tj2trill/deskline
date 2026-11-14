@@ -17,10 +17,10 @@ TEAM = [
     DemoBuilder(
         key="demo_builder", title="Demo builder", icon="bot", default_mode="approve", interval_minutes=60,
         acts=["buy_number"],
-        role="Turns the best prospects into a live demo receptionist trained on their own website, plus a demo site.",
+        role="Turns the best prospects into a live demo receptionist and a demo site, trained on their website or, if they have none, their Google listing.",
         knobs=[
             Knob("min_score", "Minimum lead score", "int", 60),
-            Knob("require_email", "Only prospects with an email", "bool", True, "So outreach can reach them."),
+            Knob("require_contact", "Only prospects we can reach", "bool", True, "An email for Outreach, or a phone for your call list."),
             Knob("max_per_run", "Demos per run", "int", 3),
             Knob("max_per_day", "Demos per day", "int", 10, "Each demo uses an LLM build and, if approved, a phone number."),
             Knob("build_site", "Also build a demo website", "bool", True),
@@ -28,8 +28,8 @@ TEAM = [
         ]),
     Outreach(
         key="outreach", title="Outreach", icon="send", default_mode="approve", interval_minutes=30,
-        acts=["send_email_draft"],
-        role="Writes a 3-email sequence for each prospect and sends it, with follow-ups, inside your window and daily cap. Uses the email angles that get replies.",
+        acts=["send_email_draft", "call_prospect"],
+        role="Writes a 3-email sequence for each prospect and sends it, with follow-ups, inside your window and daily cap. Uses the email angles that get replies. Prospects with only a phone go on your call list once their demo is built.",
         knobs=[
             Knob("min_score", "Minimum lead score", "int", 50),
             Knob("require_demo", "Wait until their demo number is ready", "bool", True, "Emails then include a number they can call."),
