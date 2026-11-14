@@ -8,7 +8,7 @@
 <style>:root{--brand:{{ brand.primary_color or '#2b50c8' }}}</style>
 <meta name="theme-color" content="{{ brand.primary_color or '#2b50c8' }}">
 <script src="/static/app.js?v=2" defer></script>
-</head>
+{% include "_pwa.html" %}</head>
 <body>
 {% include "_icons.html" %}
 {% set path = request.url.path %}
@@ -41,6 +41,7 @@
     {% elif user %}
       {{ navlink('/portal', 'dashboard', 'Overview', path == '/portal') }}
       {{ navlink('/portal/calls', 'phone', 'Calls', path.startswith('/portal/calls')) }}
+      {{ navlink('/portal/recovery', 'billing', 'Revenue recovery', path.startswith('/portal/recovery')) }}
       {{ navlink('/portal/inbox', 'inbox', 'Messages and bookings', path.startswith('/portal/inbox'), counts.get('inbox', 0) if not user.is_agency else 0) }}
       {{ navlink('/portal/business', 'building', 'Business info', path.startswith('/portal/business')) }}
       {% if user.is_agency %}<div class="nav-group">Preview mode</div>{{ navlink('/clients', 'back', 'Back to agency', False) }}{% endif %}

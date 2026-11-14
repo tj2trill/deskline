@@ -3,7 +3,7 @@
 <title>Sign in to {{ brand.brand_name }}</title>
 <link rel="preload" href="/static/fonts/ibm-plex-sans-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="/static/app.css?v=2"><style>:root{--brand:{{ brand.primary_color or '#2b50c8' }}}</style>
-<script src="/static/app.js?v=2" defer></script></head>
+<script src="/static/app.js?v=2" defer></script>{% include "_pwa.html" %}</head>
 <body>{% include "_icons.html" %}
 <div class="progress" aria-hidden="true"></div>
 <div class="auth"><div class="auth-card">

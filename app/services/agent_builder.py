@@ -145,6 +145,22 @@ def build_knowledge(profile: dict, crawl: crawler.CrawlResult | None, limit: int
     return text[:limit]
 
 
+def listing_knowledge(p) -> str:
+    """What the Google listing says about a business that has no website to crawl. Facts only."""
+    parts = [f"Business: {p.name}"]
+    if p.niche:
+        parts.append(f"Type of business: {p.niche}")
+    if p.address:
+        parts.append(f"Address: {p.address}")
+    if p.phone:
+        parts.append(f"Phone: {p.phone}")
+    if p.hours:
+        parts.append("Hours:\n" + "\n".join(f"- {h}" for h in p.hours))
+    if p.rating:
+        parts.append(f"Google rating: {p.rating} ({p.review_count or 0} reviews)")
+    return "\n\n".join(parts)
+
+
 def compose_prompt(client: Client, agent: Agent) -> str:
     p = agent.profile or {}
     tz = client.timezone or "UTC"

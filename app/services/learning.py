@@ -162,7 +162,9 @@ def facts(db: Session) -> list[Fact]:
         out.append(Fact(
             id=p.id, name=p.name, target=f"{norm(s.niche)} | {norm(s.location)}" if s else None,
             niche=norm(p.niche or (s.niche if s else "")) or "unknown", angle=p.angle, demo=p.contacted_with_demo,
-            score=p.score or 0, has_email=bool(p.email), contacted=sent is not None, sent_at=sent,
+            # a lead who asked for the demo on a call wasn't cold-contacted, so it's left out of the email tests
+            score=p.score or 0, has_email=bool(p.email), contacted=sent is not None and not (p.signals or {}).get("asked_on_call"),
+            sent_at=sent,
             positive=positive, engaged=positive or called, won=p.status == "won" or paying, paying=paying,
             revenue=revenue.get(p.client_id, 0) if p.client_id else 0,
             mrr=(c.monthly_price_cents or 0) if paying else 0, unsub=bool(p.email and p.email.lower() in suppressed)))

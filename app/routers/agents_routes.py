@@ -1,6 +1,8 @@
 """The agent team: modes, settings, run history, and the approvals inbox."""
 from __future__ import annotations
 
+import re
+
 from fastapi import APIRouter, BackgroundTasks, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from sqlalchemy import select
@@ -14,6 +16,8 @@ from ..db import get_db
 from ..models import AgencySettings, AgentAction, AgentConfig, AgentRun, User
 from ..security import agency_user
 from ..templating import flash, render
+
+EMAIL_RE = re.compile(r"[^@\s]+@[^@\s]+\.[A-Za-z]{2,}")
 
 router = APIRouter(prefix="/agents", dependencies=[Depends(agency_user)])
 
@@ -170,9 +174,20 @@ def _who(request: Request, db: Session) -> str:
 
 
 @router.post("/actions/{action_id}/{decision}")
-def decide(request: Request, action_id: int, decision: str, back: str = Form("/agents"), db: Session = Depends(get_db)):
+def decide(request: Request, action_id: int, decision: str, back: str = Form("/agents"), email: str = Form(""),
+           db: Session = Depends(get_db)):
     if decision not in ("approve", "reject", "retry"):
         raise HTTPException(400)
+    back = back if back.startswith("/") and not back.startswith("//") else "/agents"
+    email = email.strip()
+    if email and decision == "approve":  # the email a business gave you on the phone, typed next to Called
+        pending = db.get(AgentAction, action_id)
+        if pending and pending.kind == "call_prospect":
+            if not EMAIL_RE.fullmatch(email):
+                flash(request, f"'{email}' doesn't look like an email address. Nothing was marked.", "error")
+                return RedirectResponse(back, status_code=303)
+            pending.payload = {**(pending.payload or {}), "email": email}
+            db.commit()
     a = runner.decide(db, action_id, approve=decision != "reject", who=_who(request, db))
     if not a:
         raise HTTPException(404)
@@ -187,7 +202,7 @@ def decide(request: Request, action_id: int, decision: str, back: str = Form("/a
     if wants_json(request):
         return {"ok": kind == "ok", "status": a.status, "message": msg, "agent": a.agent_key, "kind": a.kind}
     flash(request, msg, kind)
-    return RedirectResponse(back if back.startswith("/") and not back.startswith("//") else "/agents", status_code=303)
+    return RedirectResponse(back, status_code=303)
 
 
 @router.post("/actions/approve-all")

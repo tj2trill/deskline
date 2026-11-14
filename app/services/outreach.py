@@ -9,8 +9,31 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ..config import get_settings
-from ..models import AgencySettings, EmailDraft, Prospect, Suppression
+from ..models import AgencySettings, Client, EmailDraft, Prospect, Site, Suppression
 from . import messaging, writer
+
+
+def asked_on_call(p: Prospect) -> bool:
+    """They gave you their email on the phone and asked for the demo: not a cold contact."""
+    return bool((p.signals or {}).get("asked_on_call"))
+
+
+def write_sequence(db: Session, agency: AgencySettings, p: Prospect, client: Client | None,
+                   angle_model=None) -> list[dict]:
+    """The emails to draft for a prospect. Someone who asked for the demo on a call gets 'here it is, as promised';
+    everyone else gets a cold sequence in the angle the learning loop picks (and is counted in its test)."""
+    demo = next((n.number for n in client.numbers if n.number), None) if client else None
+    p.contacted_with_demo = bool(demo)
+    if asked_on_call(p):
+        site = db.scalars(select(Site).where(Site.client_id == client.id)).first() if client else None
+        p.angle = None  # warm, so kept out of the cold-angle test
+        return writer.requested_sequence(agency, p, demo, f"{get_settings().base_url}/s/{site.slug}" if site else None)
+    if angle_model is None:
+        from . import learning
+
+        angle_model = learning.AngleModel(db)
+    p.angle = angle_model.choose(p.niche, demo)
+    return writer.email_sequence(agency, p, demo, angle=p.angle)
 
 
 class Blocked(Exception):

@@ -23,6 +23,13 @@ def tick() -> int:
         runner.tick()
     except Exception as e:  # the agent runner isolates failures; this is a last line of defence
         log.warning("agent tick failed: %s", e)
+    try:
+        from .services import recovery
+
+        with session_scope() as db:
+            recovery.tick(db)
+    except Exception as e:  # recovery isolates per client; this guards the scheduler loop itself
+        log.warning("recovery tick failed: %s", e)
     sent = 0
     with session_scope() as db:
         for c in db.scalars(select(Client).where(Client.status == "active", Client.report_weekly.is_(True))):

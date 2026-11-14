@@ -119,6 +119,31 @@ def email_sequence(agency: AgencySettings, p: Prospect, demo_number: str | None 
         return fallback
 
 
+def requested_sequence(agency: AgencySettings, p: Prospect, demo_number: str | None = None,
+                       site_url: str | None = None) -> list[dict]:
+    """For a business that gave you its email on the phone and asked for the demo. Written in code, not by the
+    model: it only says what happened (the call) and what exists (the demo site, the demo line)."""
+    sender = agency.sender_name or agency.brand_name
+    what = []
+    if site_url:
+        what.append(f"- The website I built for {p.name}: {site_url}")
+    if demo_number:
+        what.append(f"- Your AI receptionist, already trained on {p.name}: call {demo_number} and ask it what your "
+                    "customers usually ask")
+    shown = "\n".join(what) or f"- A demo set up for {p.name}. Reply and I'll send you the details."
+    return [
+        {"step": 1, "days": 0, "subject": f"The demo for {p.name}, as promised",
+         "body": f"Hi,\n\nThanks for taking my call. As promised, here is what I put together for {p.name}:\n\n"
+                 f"{shown}\n\nNo cost to look. If you'd like it live, reply and we'll set it up this week.\n\n{sender}"},
+        {"step": 2, "days": 3, "subject": f"Re: The demo for {p.name}, as promised",
+         "body": "Did you get a chance to look at the demo? Happy to walk you through it in 10 minutes, "
+                 f"or answer anything by email.\n\n{sender}"},
+        {"step": 3, "days": 7, "subject": f"Keep the demo for {p.name}?",
+         "body": "I'll keep your demo up for now. If you want it live, reply \"yes\" and I'll take care of the "
+                 f"setup. If not, no problem, and I won't follow up again.\n\n{sender}"},
+    ]
+
+
 def email_footer(agency: AgencySettings, unsubscribe_url: str) -> tuple[str, str]:
     addr = agency.mailing_address or ""
     text = f"\n\n--\n{agency.brand_name}{', ' + addr if addr else ''}\nDon't want these emails? {unsubscribe_url}"

@@ -6,11 +6,13 @@ import re
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 
 from ..models import (AgentAction, AgentConfig, AgentRun, Booking, Call, Client, Contact, EmailDraft, EventLog,
-                      KnowledgeGap, Prospect, ProspectSearch, User)
-from ..services import agent_builder, billing, http, leads, learning, llm, outreach, provisioning, sitegen, vapi, writer
+                      KnowledgeGap, Prospect, ProspectSearch, Site, User)
+from ..config import get_settings
+from ..services import (agent_builder, billing, http, leads, learning, llm, opportunity, outreach, provisioning, sitegen,
+                        vapi, writer)
 from .base import Agent, RunContext, aware
 
 
@@ -35,13 +37,14 @@ def _alert(ctx: RunContext, subject: str, body: str, dedupe: str, client_id: int
 
 class Prospector(Agent):
     def run(self, ctx: RunContext) -> None:
-        targets = ctx.settings["targets"]
-        if not targets:
-            ctx.summary = "Add the businesses and cities to search in this agent's settings."
-            return
         if not leads.configured():
             ctx.summary = "Needs GOOGLE_PLACES_API_KEY."
             return
+        targets = ctx.settings["targets"]
+        if not targets:
+            targets = leads.auto_targets()
+            ctx.log(f"No targets set, so it chose its own: {len(leads.AUTO_NICHES)} call-driven trades "
+                    f"across {len(leads.CANADA_CITIES)} Canadian cities.")
         retired = {learning.target_key(t) for t in ctx.settings.get("retired") or []}
         live = [t for t in targets if learning.target_key(t) not in retired]
         # Learned order: targets that bring positive replies and paying clients first, with
@@ -59,18 +62,19 @@ class Prospector(Agent):
                 ctx.log(f"Skipped '{line}': write it as type of business | city")
                 continue
             done_before = ctx.db.scalars(select(ProspectSearch).where(
-                func.lower(ProspectSearch.niche) == niche.lower(), func.lower(ProspectSearch.location) == location.lower(),
+                func.lower(ProspectSearch.niche) == niche.lower(),
+                or_(func.lower(ProspectSearch.location) == location.lower(),
+                    func.lower(ProspectSearch.base_location) == leads.canonical(location).lower()),
                 ProspectSearch.created_at >= recent)).first()
             if done_before:
                 continue
             s = leads.run_search(ctx.db, niche, location)
             ctx.stats["searches"] += 1
             ctx.stats["new_prospects"] += s.result_count
-            ctx.log(f"Searched {niche} in {location}: {s.result_count} new businesses")
+            ctx.log(f"Searched {niche} in {location}: {s.result_count} new businesses without a website")
             searched += 1
             ctx.commit()
-        todo = ctx.db.scalars(select(Prospect).where(Prospect.enriched.is_(False), Prospect.website.is_not(None),
-                                                     Prospect.status == "new")
+        todo = ctx.db.scalars(select(Prospect).where(Prospect.enriched.is_(False), Prospect.status == "new")
                               .order_by(Prospect.score.desc()).limit(ctx.settings["enrich_top"])).all()
         for p in todo:
             try:
@@ -89,21 +93,26 @@ class Prospector(Agent):
 class DemoBuilder(Agent):
     def run(self, ctx: RunContext) -> None:
         st = ctx.settings
+        # A prospect with no website is built from its Google listing (the pitch: "we built you a site").
         q = select(Prospect).where(Prospect.client_id.is_(None), Prospect.status.in_(["new", "contacted"]),
-                                   Prospect.website.is_not(None), Prospect.score >= st["min_score"])
-        if st["require_email"]:
-            q = q.where(Prospect.email.is_not(None))
+                                   Prospect.score >= st["min_score"])
+        if st["require_contact"]:  # an email for Outreach, or a phone for your call list
+            q = q.where(or_(Prospect.email.is_not(None), Prospect.phone.is_not(None)))
         built_today = ctx.db.scalar(select(func.count()).select_from(Client).where(
             Client.status == "demo", Client.created_at >= ctx.now - timedelta(days=1))) or 0
         room = max(0, min(st["max_per_run"], st["max_per_day"] - built_today))
         for p in ctx.db.scalars(q.order_by(Prospect.score.desc()).limit(room)).all():
             if outreach.is_suppressed(ctx.db, p.email):
                 continue
-            client = provisioning.create_client(ctx.db, ctx.agency, website=p.website, name=p.name, industry=p.niche or "",
+            client = provisioning.create_client(ctx.db, ctx.agency, website=p.website or "", name=p.name, industry=p.niche or "",
                                                 business_phone=p.phone or "", status="demo", prospect=p)
+            client.address = client.address or p.address
             ctx.commit()
             try:
                 agent_builder.build_agent(ctx.db, client, client.agent)
+                if not p.website:
+                    client.agent.knowledge = agent_builder.listing_knowledge(p)
+                    agent_builder.refresh_prompt(client, client.agent)
             except Exception as e:
                 client.agent.build_status, client.agent.build_error = "error", str(e)[:500]
                 agent_builder.refresh_prompt(client, client.agent)
@@ -114,7 +123,7 @@ class DemoBuilder(Agent):
             if st["build_site"]:
                 sitegen.for_client(ctx.db, client)
             ctx.stats["demos_built"] += 1
-            ctx.log(f"Built a demo receptionist for {client.name}")
+            ctx.log(f"Built a demo receptionist for {client.name}" + ("" if p.website else " from its Google listing"))
             ctx.commit()
             if st["get_number"] and vapi.configured():
                 area = provisioning.area_code_of(p.phone)
@@ -131,19 +140,21 @@ class DemoBuilder(Agent):
 class Outreach(Agent):
     def run(self, ctx: RunContext) -> None:
         st, a = ctx.settings, ctx.agency
+        self.call_list(ctx)
+        calls = f"{ctx.stats['calls_listed']} added to your call list. " if ctx.stats.get("calls_listed") else ""
         if not a.mailing_address:
-            ctx.summary = "Paused: add your mailing address in Settings (required in every cold email)."
+            ctx.summary = calls + "Emails paused: add your mailing address in Settings (required in every cold email)."
             return
         local = _local_now(ctx)
         if st["weekdays_only"] and local.weekday() >= 5:
-            ctx.summary = "Weekend. Emails go out on weekdays."
+            ctx.summary = calls + "Weekend. Emails go out on weekdays."
             return
         if not (st["window_start"] <= local.strftime("%H:%M") < st["window_end"]):
-            ctx.summary = f"Outside the {st['window_start']}–{st['window_end']} send window."
+            ctx.summary = calls + f"Outside the {st['window_start']}–{st['window_end']} send window."
             return
         room = min(st["max_per_run"], max(0, a.daily_email_cap - outreach.sent_last_24h(ctx.db)))
         if room <= 0:
-            ctx.summary = "Today's email cap is used up."
+            ctx.summary = calls + "Today's email cap is used up."
             return
         q = select(Prospect).where(Prospect.email.is_not(None), Prospect.status.in_(["new", "contacted", "demo"]),
                                    Prospect.score >= st["min_score"]).order_by(Prospect.score.desc()).limit(200)
@@ -155,15 +166,15 @@ class Outreach(Agent):
                 continue
             client = ctx.db.get(Client, p.client_id) if p.client_id else None
             demo_number = next((n.number for n in client.numbers if n.number), None) if client else None
-            if st["require_demo"] and not demo_number:
+            if st["require_demo"] and not demo_number and not outreach.asked_on_call(p):  # they asked: send what exists
                 continue
             if not ctx.db.scalars(select(EmailDraft.id).where(EmailDraft.prospect_id == p.id)).first():
-                if angles is None:
+                if angles is None and not outreach.asked_on_call(p):
                     angles = learning.AngleModel(ctx.db)
-                angle = angles.choose(p.niche, demo_number)
-                p.angle, p.contacted_with_demo = angle, bool(demo_number)
-                ctx.log(f"{p.name}: writing the '{writer.ANGLE_LABELS[angle]}' angle")
-                for e in writer.email_sequence(a, p, demo_number, angle=angle):
+                seq = outreach.write_sequence(ctx.db, a, p, client, angle_model=angles)
+                ctx.log(f"{p.name}: " + (f"writing the '{writer.ANGLE_LABELS[p.angle]}' angle" if p.angle
+                                         else "sending the demo they asked for on the call"))
+                for e in seq:
                     ctx.db.add(EmailDraft(prospect_id=p.id, step=e["step"], send_after_days=e["days"],
                                           subject=e["subject"], body=e["body"]))
                 ctx.stats["sequences_written"] += 1
@@ -181,6 +192,41 @@ class Outreach(Agent):
                           detail=f"To: {p.email}\nSubject: {d.subject}\n\n{d.body}")
             if act:
                 room -= 1
+
+
+    def call_list(self, ctx: RunContext) -> None:
+        """Prospects with a phone but no email go on your call list once their demo is built, with what to say
+        and the demo to point them at. Calls are made by you, so these never run on Autopilot."""
+        base = get_settings().base_url
+        q = select(Prospect).where(Prospect.email.is_(None), Prospect.phone.is_not(None), Prospect.status == "demo",
+                                   Prospect.client_id.is_not(None), Prospect.score >= ctx.settings["min_score"])
+        for p in ctx.db.scalars(q.order_by(Prospect.score.desc()).limit(50)).all():
+            client = ctx.db.get(Client, p.client_id)
+            site = ctx.db.scalars(select(Site).where(Site.client_id == client.id)).first() if client else None
+            demo_number = next((n.number for n in client.numbers if n.number), None) if client else None
+            lines = [f"Phone: {p.phone}", f"Address: {p.address or '-'}"]
+            if p.maps_url:
+                lines.append(f"Google listing: {p.maps_url}")
+            social = (p.signals or {}).get("social")
+            if social:
+                lines.append(f"Their {social['name']} page: {social['url']}")
+            if site:
+                lines.append(f"Their demo website: {base}/s/{site.slug}")
+            if demo_number:
+                lines.append(f"Their demo receptionist: {demo_number}")
+            pitch = ("I noticed you don't have a website, so I built you one" if not p.website
+                     else "I built a demo for your business")
+            lines.append(f"\nWhat to say: \"Hi, is this {p.name}? {pitch}"
+                         + (" and an AI receptionist that answers your calls when you can't" if demo_number else "")
+                         + ". What email should I send the link to? No cost to take a look.\"")
+            opportunity.fill_blanks(p, ctx.agency.default_monthly_price_cents)
+            est = opportunity.estimate(p, ctx.agency.default_monthly_price_cents)
+            lines.append(f"\nAt stake: about {est['missed_calls_per_week']} missed calls/week, roughly "
+                         f"${est['recovered_per_month']:,.0f}/month in lost jobs (estimate; the full brief is in their Notes).")
+            lines.append("\nType the email they give you and tap Called, or Skip to drop them.")
+            if ctx.act("call_prospect", f"Call {p.name} at {p.phone}", {"prospect_id": p.id, "phone": p.phone}, dedupe=f"call:{p.id}",
+                       detail="\n".join(lines), prospect_id=p.id, client_id=p.client_id, manual=True):
+                ctx.stats["calls_listed"] += 1
 
 
 # =================================================================== 4. Closer + onboarding

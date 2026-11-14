@@ -1,7 +1,7 @@
 from collections.abc import Iterator
 from contextlib import contextmanager
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 from .config import get_settings
@@ -23,8 +23,18 @@ def engine():
         if url.startswith("sqlite"):
             kwargs = {"connect_args": {"check_same_thread": False}}
         _engine = create_engine(url, **kwargs)
+        if url.startswith("sqlite"):
+            # SQLite ignores foreign keys unless each connection turns them on; without this every
+            # ondelete=CASCADE / SET NULL in the models is a no-op (a deleted client left its public site up).
+            event.listen(_engine, "connect", _sqlite_foreign_keys)
         _SessionLocal = sessionmaker(bind=_engine, expire_on_commit=False)
     return _engine
+
+
+def _sqlite_foreign_keys(dbapi_conn, _record) -> None:
+    cur = dbapi_conn.cursor()
+    cur.execute("PRAGMA foreign_keys=ON")
+    cur.close()
 
 
 def reset_engine() -> None:

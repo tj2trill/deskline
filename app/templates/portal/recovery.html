@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+{% import "_ui.html" as ui with context %}
+{% block title %}Revenue recovery – {{ c.name }}{% endblock %}
+{% macro act(path, action, text, cls='') -%}
+<form class="inline" method="post" action="/portal/recovery/{{ path }}/{{ action }}"><button class="btn sm {{ cls }}" type="submit">{{ text }}</button></form>
+{%- endmacro %}
+{% block content %}
+{% if user.is_agency %}<div class="callout" data-tone="brand">{{ ui.icon('eye') }}<span>Preview: this is what {{ c.owner_name or 'the owner' }} sees.</span></div>{% endif %}
+<div class="page-head">
+  <div><h1>Revenue recovery</h1><p class="lede">Money found between the phone call and the payment, since {{ s.since|localtime(c.timezone, '%B %d') }}.</p></div>
+  {% if number %}<span class="cluster small muted">{{ ui.icon('phone') }}Recovery line {{ number.number|phone }}</span>{% endif %}
+</div>
+{% if not c.recovery_enabled %}<div class="callout" data-tone="bad">{{ ui.icon('alert') }}<span>Recovery is switched off for this business, so nothing below is being sent.</span></div>{% endif %}
+
+<div class="stats">
+  <div class="stat"><div class="label">Revenue recovered</div><div class="value" data-tone="good">{{ s.recovered_confirmed|money(0) }}</div>
+    <div class="note">{% if s.recovered_estimated %}+ about {{ s.recovered_estimated|money(0) }} in booked jobs to confirm{% else %}Confirmed amounts only{% endif %}</div></div>
+  <div class="stat"><div class="label">Missed calls recovered</div><div class="value">{{ s.booked }}<span class="muted small"> / {{ s.missed_calls }}</span></div>
+    <div class="note">Booked by text after a missed call</div></div>
+  <div class="stat"><div class="label">Quotes recovered</div><div class="value">{{ s.quotes_recovered }}</div>
+    <div class="note">{{ s.quotes_recovered_cents|money(0) }} · {{ s.quotes_open }} still open ({{ s.quotes_open_cents|money(0) }})</div></div>
+  <div class="stat"><div class="label">Overdue invoices</div><div class="value" {% if s.overdue_cents %}data-tone="bad"{% endif %}>{{ s.overdue_cents|money(0) }}</div>
+    <div class="note">{{ s.invoices_recovered_cents|money(0) }} recovered{% if s.invoices_on_time_cents %} · {{ s.invoices_on_time_cents|money(0) }} paid on time after a reminder{% endif %}</div></div>
+</div>
+
+<section class="surface"><div class="surface-head"><div><h2>Missed calls this month</h2><div class="sub">Every unanswered call gets a text within seconds</div></div></div>
+  <div class="stats flat">
+    {% for label_, n in [('Missed', s.missed_calls), ('Texted', s.texted), ('Replied', s.engaged), ('Qualified', s.qualified), ('Booked', s.booked)] %}
+    <div class="stat"><div class="label">{{ label_ }}</div><div class="value">{{ n }}</div>{% if loop.index > 1 and s.texted %}<div class="note">{{ (n * 100 / s.texted)|round|int }}% of texted</div>{% endif %}</div>{% endfor %}
+  </div>
+  {% if s.emergencies %}<div class="surface-body small">{{ ui.badge('emergency') }} {{ s.emergencies }} emergency {{ 'call was' if s.emergencies == 1 else 'calls were' }} sent straight to you.</div>{% endif %}
+</section>
+
+{% if jobs %}<section class="surface" id="jobs"><div class="surface-head"><div><h2>Confirm job values</h2>
+  <div class="sub">Booked from missed calls. Enter what the job was worth (0 if it didn't happen) so the numbers above are real.</div></div></div>
+  <ul class="rows">{% for ev, t in jobs %}<li>{{ ui.lamp('booked') }}
+    <span class="grow"><span class="title">{{ (t.data.name if t and t.data.name) or (t.phone|phone if t else 'Customer') }}</span>
+      <span class="text">{{ ev.note or '' }}</span><span class="meta">Estimated at {{ ev.amount_cents|money(0) }}{% if t %} · <a href="/portal/recovery/threads/{{ t.id }}">conversation</a>{% endif %}</span></span>
+    <form class="end inline-form tight" method="post" action="/portal/recovery/jobs/{{ ev.id }}">
+      {{ ui.field('value', 'Job value', placeholder=(ev.amount_cents|dollars), id='jv-' ~ ev.id) }}<button class="btn sm primary" type="submit">Save</button></form></li>{% endfor %}</ul>
+</section>{% endif %}
+
+<section class="surface" id="conversations"><div class="surface-head"><h2>Conversations</h2></div>
+  {% if threads %}<ul class="rows">{% for t in threads %}<li>{{ ui.lamp(t.status) }}
+    <span class="grow"><a class="title" href="/portal/recovery/threads/{{ t.id }}">{{ t.data.get('name') or t.phone|phone }}</a>
+      <span class="text clamp-2">{{ t.data.get('service') or '' }}{% if t.data.get('address') %} · {{ t.data.address }}{% endif %}</span>
+      <span class="meta"><span>{{ t.kind|label }}</span><span>{{ t.updated_at|localtime(c.timezone) }}</span></span></span>
+    <span class="end">{{ ui.badge(t.status) }}</span></li>{% endfor %}</ul>
+  {% else %}{{ ui.empty('chat', 'No conversations yet', 'Texts with customers about missed calls, quotes and invoices show up here.') }}{% endif %}
+</section>
+
+<section class="surface" id="quotes"><div class="surface-head"><div><h2>Quotes</h2><div class="sub">Follow-ups go out on days {{ (c.quote_followup_days or [1,3,7,14])|join(', ') }} and stop the moment the customer replies</div></div></div>
+  {% if quotes %}<div class="table-wrap"><table class="table stackable">
+    <thead><tr><th>Customer</th><th>Job</th><th class="num">Amount</th><th>Status</th><th>Follow-ups</th><th></th></tr></thead>
+    <tbody>{% for q in quotes %}<tr>
+      <td class="primary-cell" data-label="Customer">{{ q.customer_name or q.phone|phone }}<span class="sub">{% if q.ref %}#{{ q.ref }} · {% endif %}{{ q.sent_at|localtime(c.timezone, '%b %d') }}</span></td>
+      <td data-label="Job">{{ q.description }}{% if q.last_reply %}<span class="sub">“{{ q.last_reply[:120] }}”</span>{% endif %}</td>
+      <td class="num" data-label="Amount">{{ q.amount_cents|money(0) }}{% if q.deposit_cents %}<span class="sub">{{ q.deposit_cents|money(0) }} deposit</span>{% endif %}</td>
+      <td data-label="Status">{{ ui.badge(q.status) }}{% if q.paused %} {{ ui.badge('paused', 'Paused') }}{% endif %}</td>
+      <td data-label="Follow-ups" class="small">{{ q.followups_sent }} sent{% if q.next_touch_at and q.status == 'open' %}<span class="sub">Next {{ q.next_touch_at|localtime(c.timezone) }}</span>{% endif %}</td>
+      <td data-label="" class="nowrap"><div class="cluster">
+        {% if q.status == 'open' %}{{ act('quotes/' ~ q.id, 'accepted', 'Won') }}{{ act('quotes/' ~ q.id, 'lost', 'Lost', 'ghost') }}
+          {% if q.paused %}{{ act('quotes/' ~ q.id, 'resume', 'Resume', 'ghost') }}{% else %}{{ act('quotes/' ~ q.id, 'pause', 'Pause', 'ghost') }}{% endif %}
+        {% elif q.status in ['accepted', 'deposit_requested'] %}{{ act('quotes/' ~ q.id, 'deposit_paid', 'Deposit paid') }}{{ act('quotes/' ~ q.id, 'lost', 'Fell through', 'ghost') }}
+        {% elif q.status == 'deposit_paid' %}{{ act('quotes/' ~ q.id, 'scheduled', 'Scheduled') }}{% endif %}
+      </div></td></tr>{% endfor %}</tbody></table></div>
+  {% else %}{{ ui.empty('file', 'No quotes yet', 'Add one below or import a CSV export from your quoting tool.') }}{% endif %}
+  <div class="surface-body divided">
+    <form method="post" action="/portal/recovery/quotes"><div class="form-grid">
+      {{ ui.field('customer_name', 'Customer', id='q-name') }}{{ ui.field('phone', 'Mobile', type='tel', placeholder='519 555 0123', required=True, id='q-phone') }}
+      {{ ui.field('description', 'Job', placeholder='electrical panel replacement', id='q-desc') }}{{ ui.field('amount', 'Amount', placeholder='2850', required=True, id='q-amount') }}
+      {{ ui.field('deposit', 'Deposit on acceptance', placeholder=(c.default_deposit_cents|dollars if c.default_deposit_cents else 'none'), id='q-dep') }}
+      {{ ui.field('sent_on', 'Quote sent on', type='date', value=today, id='q-sent') }}{{ ui.field('ref', 'Quote #', id='q-ref') }}
+    </div><div class="mt"><button class="btn primary" type="submit">{{ ui.icon('plus') }}Add quote</button></div></form>
+    <form class="inline-form mt" method="post" action="/portal/recovery/quotes/import" enctype="multipart/form-data" data-hard>
+      <div class="field"><label for="q-csv">Import CSV</label><input id="q-csv" type="file" name="file" accept=".csv,text/csv" required>
+      <span class="hint">Needs an amount column; phone, customer, job, quote # and date are picked up when present.</span></div>
+      <button class="btn" type="submit">{{ ui.icon('download') }}Import quotes</button></form>
+  </div>
+</section>
+
+<section class="surface" id="invoices"><div class="surface-head"><div><h2>Invoices</h2><div class="sub">Reminders on days {{ (c.invoice_reminder_days or [-3,0,3,7,14])|join(', ') }} around the due date, then handed to you at {{ c.invoice_escalate_days or 21 }} days late</div></div></div>
+  {% if invoices %}<div class="table-wrap"><table class="table stackable">
+    <thead><tr><th>Customer</th><th class="num">Amount</th><th>Due</th><th>Status</th><th>Reminders</th><th></th></tr></thead>
+    <tbody>{% for i in invoices %}{% set late = i.status == 'open' and aware(i.due_date) < now %}<tr>
+      <td class="primary-cell" data-label="Customer">{{ i.customer_name or i.phone|phone }}{% if i.number %}<span class="sub">#{{ i.number }}</span>{% endif %}{% if i.last_reply %}<span class="sub">“{{ i.last_reply[:120] }}”</span>{% endif %}</td>
+      <td class="num" data-label="Amount">{{ i.amount_cents|money }}</td>
+      <td data-label="Due" class="when">{{ i.due_date|localtime(c.timezone, '%b %d') }}</td>
+      <td data-label="Status">{{ ui.badge('overdue' if late else i.status) }}{% if i.customer_says_paid_at and i.status == 'open' %} {{ ui.badge('pending', 'Says paid') }}{% endif %}{% if i.escalated_at and i.status == 'open' %} {{ ui.badge('urgent', 'Call them') }}{% endif %}</td>
+      <td data-label="Reminders" class="small">{{ (i.reminders_sent or [])|selectattr('sent')|list|length }} sent</td>
+      <td data-label="" class="nowrap"><div class="cluster">
+        {% if i.status in ['open', 'disputed'] %}{{ act('invoices/' ~ i.id, 'paid', 'Paid') }}
+          {% if i.paused or i.status == 'disputed' %}{{ act('invoices/' ~ i.id, 'resume', 'Resume', 'ghost') }}{% else %}{{ act('invoices/' ~ i.id, 'pause', 'Pause', 'ghost') }}{% endif %}
+          {{ act('invoices/' ~ i.id, 'void', 'Void', 'ghost') }}{% endif %}
+      </div></td></tr>{% endfor %}</tbody></table></div>
+  {% else %}{{ ui.empty('billing', 'No invoices yet', 'Add one below or import your accounts-receivable export.') }}{% endif %}
+  <div class="surface-body divided">
+    <form method="post" action="/portal/recovery/invoices"><div class="form-grid">
+      {{ ui.field('customer_name', 'Customer', id='i-name') }}{{ ui.field('phone', 'Mobile', type='tel', required=True, id='i-phone') }}
+      {{ ui.field('amount', 'Amount', placeholder='4800', required=True, id='i-amount') }}{{ ui.field('due', 'Due date', type='date', required=True, id='i-due') }}
+      {{ ui.field('number', 'Invoice #', id='i-num') }}{{ ui.field('payment_link', 'Payment link', placeholder='https://…', hint=('Blank uses: ' ~ c.payment_instructions) if c.payment_instructions else None, id='i-link') }}
+    </div><div class="mt"><button class="btn primary" type="submit">{{ ui.icon('plus') }}Add invoice</button></div></form>
+    <form class="inline-form mt" method="post" action="/portal/recovery/invoices/import" enctype="multipart/form-data" data-hard>
+      <div class="field"><label for="i-csv">Import CSV</label><input id="i-csv" type="file" name="file" accept=".csv,text/csv" required>
+      <span class="hint">Needs amount and due date columns. Dates as 2026-11-30 or 11/30/2026.</span></div>
+      <button class="btn" type="submit">{{ ui.icon('download') }}Import invoices</button></form>
+  </div>
+</section>
+
+{% if c.performance_fee_pct %}<section class="surface"><div class="surface-head"><div><h2>Performance fee</h2>
+  <div class="sub">{{ c.performance_fee_pct|round(1) }}% of confirmed recovered revenue: quotes won after a follow-up, invoices paid after an overdue reminder, and missed-call jobs you've confirmed</div></div>
+  <div class="strong">{{ s.fee_cents|money }}</div></div>
+  <div class="surface-body small muted">On {{ s.fee_base|money(0) }} this month. Estimates and invoices paid on time are never included.</div></section>{% endif %}
+{% endblock %}

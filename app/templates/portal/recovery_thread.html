@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% import "_ui.html" as ui with context %}
+{% block title %}{{ t.data.get('name') or t.phone|phone }} – Revenue recovery{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div><a class="back" href="/portal/recovery#conversations">{{ ui.icon('back') }}Revenue recovery</a>
+    <h1>{{ t.data.get('name') or t.phone|phone }} {{ ui.badge(t.status) }}</h1>
+    <div class="meta"><span>{{ t.kind|label }}</span>{{ ui.tel(t.phone) }}<span>Started {{ t.created_at|localtime(c.timezone) }}</span></div></div>
+  <a class="btn" href="tel:{{ t.phone }}">{{ ui.icon('phone') }}Call</a>
+</div>
+<div class="layout main-side">
+  <section class="surface"><div class="surface-head"><h2>Texts</h2></div>
+    {% if msgs %}<div class="convo">{% for m in msgs %}
+      <div class="turn {{ 'agent' if m.direction == 'out' else 'caller' }}"><span class="who">{{ c.name if m.direction == 'out' else 'Customer' }} · {{ m.created_at|localtime(c.timezone, '%b %d %I:%M %p') }}{% if m.status == 'failed' %} · failed{% endif %}</span>
+        <div class="bubble">{{ m.body }}{% for url in m.media %}<br><a href="{{ url }}" target="_blank" rel="noopener">Photo {{ loop.index }}</a>{% endfor %}</div></div>{% endfor %}</div>
+    {% else %}{{ ui.empty('chat', 'No texts yet') }}{% endif %}
+    <div class="surface-body divided">
+      {% if opted_out %}<div class="callout" data-tone="bad">{{ ui.icon('alert') }}<span>This customer replied STOP. You can't text them from this number unless they text START.</span></div>
+      {% else %}<form method="post" action="/portal/recovery/threads/{{ t.id }}/reply">
+        {{ ui.area('body', 'Reply as ' ~ c.name, hint='Sending a reply turns off automated texts for this conversation.') }}
+        <button class="btn primary mt" type="submit">{{ ui.icon('send') }}Send text</button></form>{% endif %}
+    </div>
+  </section>
+  <div class="stack">
+    <section class="surface"><div class="surface-head"><h2>What we know</h2></div>
+      <div class="surface-body"><dl class="facts">
+        {% for k, lbl in [('service','Job'),('address','Address'),('urgency','Urgency')] %}{% if t.data.get(k) %}<dt>{{ lbl }}</dt><dd>{{ {'emergency': 'Emergency', 'soon': 'This week', 'flexible': 'Flexible'}.get(t.data[k], t.data[k]) if k == 'urgency' else t.data[k] }}</dd>{% endif %}{% endfor %}
+        {% if t.data.get('questions') %}<dt>Asked</dt><dd>{{ t.data.questions|join('; ') }}</dd>{% endif %}
+        {% if t.data.get('calls', 0) > 1 %}<dt>Calls</dt><dd>Called {{ t.data.calls }} times</dd>{% endif %}
+      </dl>
+      {% for url in t.data.get('photos', []) %}<a class="btn sm" href="{{ url }}" target="_blank" rel="noopener">Photo {{ loop.index }}</a> {% endfor %}
+      {% if quote %}<p class="small">Quote {{ quote.amount_cents|money(0) }} for {{ quote.description }} {{ ui.badge(quote.status) }}</p>{% endif %}
+      {% if invoice %}<p class="small">Invoice {% if invoice.number %}#{{ invoice.number }} {% endif %}{{ invoice.amount_cents|money }} {{ ui.badge(invoice.status) }}</p>{% endif %}
+      </div></section>
+  </div>
+</div>
+{% endblock %}

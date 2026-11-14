@@ -6,21 +6,21 @@ from .team import (AccountManager, BillingGuardian, Closer, DailyBrief, DemoBuil
 TEAM = [
     Prospector(
         key="prospector", title="Prospector", icon="search", default_mode="auto", interval_minutes=1440,
-        role="Searches Google Maps for the businesses you target, scores them, and checks their websites. Searches the targets that bring paying clients first.",
+        role="Searches Google Maps for businesses with no website, in the trades and cities you set or, if you set none, ones it chooses across Canada. Searches the targets that bring paying clients first.",
         knobs=[
-            Knob("targets", "What to search", "lines", [], "One per line: type of business | city. For example: plumber | Hamilton, ON"),
+            Knob("targets", "What to search", "lines", [], "One per line: type of business | city. For example: plumber | Hamilton, ON. Leave empty and it chooses its own: call-driven trades across Canada."),
             Knob("searches_per_run", "Searches per day", "int", 2, "Each search returns up to 60 businesses."),
-            Knob("enrich_top", "Websites to check per day", "int", 15, "Finds emails, chat widgets and online booking."),
+            Knob("enrich_top", "Leads to research per day", "int", 15, "Pulls Google price range and reviews (billed per lead), and checks any website for emails, chat widgets and online booking."),
             Knob("research_after_days", "Search the same place again after (days)", "int", 30),
             Knob("retired", "Retired targets", "lines", [], "Targets the Strategist found don't work. Move a line back up to try it again."),
         ]),
     DemoBuilder(
         key="demo_builder", title="Demo builder", icon="bot", default_mode="approve", interval_minutes=60,
         acts=["buy_number"],
-        role="Turns the best prospects into a live demo receptionist trained on their own website, plus a demo site.",
+        role="Turns the best prospects into a live demo receptionist and a demo site, trained on their website or, if they have none, their Google listing.",
         knobs=[
             Knob("min_score", "Minimum lead score", "int", 60),
-            Knob("require_email", "Only prospects with an email", "bool", True, "So outreach can reach them."),
+            Knob("require_contact", "Only prospects we can reach", "bool", True, "An email for Outreach, or a phone for your call list."),
             Knob("max_per_run", "Demos per run", "int", 3),
             Knob("max_per_day", "Demos per day", "int", 10, "Each demo uses an LLM build and, if approved, a phone number."),
             Knob("build_site", "Also build a demo website", "bool", True),
@@ -28,8 +28,8 @@ TEAM = [
         ]),
     Outreach(
         key="outreach", title="Outreach", icon="send", default_mode="approve", interval_minutes=30,
-        acts=["send_email_draft"],
-        role="Writes a 3-email sequence for each prospect and sends it, with follow-ups, inside your window and daily cap. Uses the email angles that get replies.",
+        acts=["send_email_draft", "call_prospect"],
+        role="Writes a 3-email sequence for each prospect and sends it, with follow-ups, inside your window and daily cap. Uses the email angles that get replies. Prospects with only a phone go on your call list once their demo is built.",
         knobs=[
             Knob("min_score", "Minimum lead score", "int", 50),
             Knob("require_demo", "Wait until their demo number is ready", "bool", True, "Emails then include a number they can call."),

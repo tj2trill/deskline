@@ -84,6 +84,24 @@ def _send_email(db: Session, p: dict) -> str:
         raise Deferred(str(e)) from e
 
 
+@executor("call_prospect", "Call a business")
+def _called(db: Session, p: dict) -> str:
+    from ..models import Prospect
+
+    prospect = db.get(Prospect, int(p["prospect_id"]))
+    if not prospect:
+        raise ValueError("The prospect no longer exists.")
+    if prospect.status in ("new", "demo"):
+        prospect.status = "contacted"
+    email = (p.get("email") or "").strip().lower()
+    if email:
+        prospect.email = email
+        prospect.signals = {**(prospect.signals or {}), "asked_on_call": utcnow().isoformat()}
+        return (f"Marked {prospect.name} as called and saved {email}. "
+                "Outreach will send them the demo emails on its next run.")
+    return f"Marked {prospect.name} as called. Set them to replied or won in Lead finder when they answer."
+
+
 @executor("buy_number", "Get a phone number")
 def _buy_number(db: Session, p: dict) -> str:
     from ..services import provisioning

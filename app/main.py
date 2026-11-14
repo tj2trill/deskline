@@ -52,10 +52,11 @@ def create_app() -> FastAPI:
 
     from fastapi.staticfiles import StaticFiles
 
-    from .routers import agents_routes, auth, clients, growth, portal, public, settings_routes, webhooks
+    from .routers import (agents_routes, auth, clients, growth, portal, public, recovery_routes, settings_routes,
+                          twilio_hooks, webhooks)
 
     for r in (auth.router, clients.router, growth.router, agents_routes.router, settings_routes.router, portal.router,
-              public.router, webhooks.router):
+              recovery_routes.router, recovery_routes.agency, public.router, webhooks.router, twilio_hooks.router):
         app.include_router(r)
     app.mount("/static", StaticFiles(directory=str(Path(__file__).parent / "static")), name="static")
 

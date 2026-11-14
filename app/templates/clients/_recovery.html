@@ -1,0 +1,63 @@
+{# Agency setup for revenue recovery. The owner-facing dashboard lives at /portal/recovery. #}
+<div class="stats">
+  <div class="stat"><div class="label">Recovered this month</div><div class="value">{{ rs.recovered_confirmed|money(0) }}</div><div class="note">{% if rs.recovered_estimated %}+ {{ rs.recovered_estimated|money(0) }} estimated{% else %}Confirmed only{% endif %}</div></div>
+  <div class="stat"><div class="label">Missed calls → booked</div><div class="value">{{ rs.booked }} / {{ rs.missed_calls }}</div><div class="note">{{ rs.engaged }} replied</div></div>
+  <div class="stat"><div class="label">Quotes / invoices recovered</div><div class="value">{{ (rs.quotes_recovered_cents + rs.invoices_recovered_cents)|money(0) }}</div></div>
+  <div class="stat"><div class="label">Performance fee</div><div class="value">{{ rs.fee_cents|money(0) }}</div><div class="note">{{ client.performance_fee_pct or 0 }}% of {{ rs.fee_base|money(0) }}</div></div>
+</div>
+<div class="layout main-side">
+  <form class="surface" method="post" action="/clients/{{ client.id }}/recovery" data-track>
+    <div class="surface-head"><div><h2>Revenue recovery</h2><div class="sub">Missed-call text-back, quote follow-up and invoice reminders, all from one local number</div></div>
+      <a class="btn ghost sm" href="/portal/recovery?client_id={{ client.id }}">{{ ui.icon('eye') }}Owner dashboard</a></div>
+    <div class="surface-body stack">
+      {{ ui.switch('recovery_enabled', 'Recovery on', 'Texts customers on this business\'s behalf. Owners get alerts by email' ~ (' and text' if client.notify_sms else '') ~ '.', client.recovery_enabled) }}
+      <div class="form-grid">
+        {{ ui.choice('missed_call_mode', 'How missed calls reach us', [('forward', 'Carrier forwards unanswered calls here'), ('ring', 'Our number is the business line: rings the owner first')], client.missed_call_mode) }}
+        {{ ui.field('ring_seconds', 'Ring the owner for (seconds)', client.ring_seconds, type='number', hint='Ring mode only. The owner presses 1 to take the call, so voicemail never counts as answered.') }}
+        {{ ui.field('avg_job_value', 'Average job value', client.avg_job_value_cents|dollars, hint='Estimate for booked jobs until the owner confirms the real value.') }}
+        {{ ui.field('performance_fee_pct', 'Performance fee %', client.performance_fee_pct or 0, hint='On confirmed recovered revenue only. 0 = flat plan.') }}
+      </div>
+      {{ ui.area('textback_opener', 'Missed-call opener', client.textback_opener or '', placeholder="Hi, it's {business}. Sorry we missed your call! We can help by text right now. What do you need help with? Reply STOP to opt out.", hint='{business} is replaced with the business name. Keep "Reply STOP to opt out".') }}
+      {{ ui.switch('ask_photos', 'Ask for a photo', 'One optional photo request before offering times.', client.ask_photos) }}
+      <div class="form-grid">
+        {{ ui.field('quote_followup_days', 'Quote follow-up days', (client.quote_followup_days or [1,3,7,14])|join(', '), hint='Up to 4. The last one is the final check-in.') }}
+        {{ ui.field('invoice_reminder_days', 'Invoice reminder days', (client.invoice_reminder_days or [-3,0,3,7,14])|join(', '), hint='Relative to the due date; negative = before.') }}
+        {{ ui.field('invoice_escalate_days', 'Hand to owner after (days late)', client.invoice_escalate_days or 21, type='number') }}
+        {{ ui.field('default_deposit', 'Default deposit', client.default_deposit_cents|dollars if client.default_deposit_cents else '', placeholder='500') }}
+        {{ ui.field('deposit_link', 'Deposit / payment link', client.deposit_link or '', placeholder='https://…', hint='Their Stripe, Square or QuickBooks payment link.') }}
+        {{ ui.field('payment_instructions', 'Or payment instructions', client.payment_instructions or '', placeholder='e-Transfer to pay@business.ca') }}
+        {{ ui.field('send_window_start', 'Follow-ups from', client.send_window_start, type='time') }}
+        {{ ui.field('send_window_end', 'Until', client.send_window_end, type='time', hint='Missed-call replies are immediate; follow-ups and reminders wait for this window.') }}
+      </div>
+    </div>
+    <div class="surface-foot">{{ ui.save() }}</div>
+  </form>
+  <div class="stack">
+    <section class="surface"><div class="surface-head"><h2>Recovery number</h2></div>
+      {% if rnum %}<ul class="rows"><li>{{ ui.lamp('active') }}<span class="grow"><span class="title">{{ rnum.number|phone }}</span><span class="meta"><span>Twilio</span><span>{{ client.missed_call_mode|label }} mode</span></span></span>
+        <form class="end" method="post" action="/clients/{{ client.id }}/recovery/number/{{ rnum.id }}/remove" data-confirm="Missed calls and texts to {{ rnum.number|phone }} will stop reaching recovery." data-confirm-title="Detach this number?" data-confirm-ok="Detach"><button class="btn danger sm">Detach</button></form></li></ul>
+        <div class="surface-body small stack-s">
+          {% if client.missed_call_mode == 'forward' %}<p class="m0">Have the owner turn on <b>conditional call forwarding</b> (no answer and busy) on their business line to {{ rnum.number|phone }}. The star codes differ by carrier and plan, so look up theirs, then test with a call you don't pick up.</p>
+          {% else %}<p class="m0">Publish {{ rnum.number|phone }} as the business line (or port it in). It rings {{ (client.transfer_number or client.owner_phone or 'the owner (add a number!)')|phone }} for {{ client.ring_seconds }}s.</p>{% endif %}
+          <p class="m0 muted">Webhooks are set automatically: voice {{ hook_urls.VoiceUrl }}, SMS {{ hook_urls.SmsUrl }}.</p>
+        </div>
+      {% else %}<div class="surface-body stack">
+        {% if not twilio_ready %}<div class="callout" data-tone="bad">{{ ui.icon('alert') }}<span>Add TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN to get numbers. The simulator below works without them.</span></div>{% endif %}
+        <form method="post" action="/clients/{{ client.id }}/recovery/number/buy" class="inline-form">
+          {{ ui.field('area_code', 'Area code', placeholder='519', id='rec-area') }}{{ ui.choice('country', 'Country', [('CA','Canada'),('US','US')], 'CA') }}<button class="btn primary" type="submit">Get a local number</button></form>
+        <form method="post" action="/clients/{{ client.id }}/recovery/number/connect" class="inline-form">
+          {{ ui.field('number', 'Or connect a Twilio number', type='tel', placeholder='+15195550123', id='rec-connect') }}<button class="btn" type="submit">Connect</button></form>
+      </div>{% endif %}
+    </section>
+    <section class="surface"><div class="surface-head"><div><h2>Try it</h2><div class="sub">Demo the flow live: texts go to the phone you enter (console mode without Twilio)</div></div></div>
+      <div class="surface-body stack">
+        <form method="post" action="/clients/{{ client.id }}/recovery/simulate/call" class="inline-form">
+          {{ ui.field('phone', 'Missed call from', type='tel', placeholder='Your mobile', id='sim-phone') }}<button class="btn" type="submit">{{ ui.icon('phone') }}Simulate</button></form>
+        <form method="post" action="/clients/{{ client.id }}/recovery/simulate/text" class="stack-s">
+          <div class="form-grid">{{ ui.field('phone', 'Customer', type='tel', id='sim-from') }}{{ ui.field('body', 'Texts', placeholder='My panel is buzzing', id='sim-body') }}</div>
+          <div><button class="btn" type="submit">{{ ui.icon('send') }}Send as customer</button></div></form>
+      </div>
+      {% if threads %}<ul class="rows">{% for t in threads %}<li>{{ ui.lamp(t.status) }}<span class="grow"><a class="title" href="/portal/recovery/threads/{{ t.id }}?client_id={{ client.id }}">{{ t.data.get('name') or t.phone|phone }}</a><span class="meta"><span>{{ t.kind|label }}</span><span>{{ t.updated_at|localtime(client.timezone) }}</span></span></span><span class="end">{{ ui.badge(t.status) }}</span></li>{% endfor %}</ul>{% endif %}
+    </section>
+  </div>
+</div>
