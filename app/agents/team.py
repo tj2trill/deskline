@@ -6,7 +6,7 @@ import re
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 
 from ..models import (AgentAction, AgentConfig, AgentRun, Booking, Call, Client, Contact, EmailDraft, EventLog,
                       KnowledgeGap, Prospect, ProspectSearch, User)
@@ -35,13 +35,14 @@ def _alert(ctx: RunContext, subject: str, body: str, dedupe: str, client_id: int
 
 class Prospector(Agent):
     def run(self, ctx: RunContext) -> None:
-        targets = ctx.settings["targets"]
-        if not targets:
-            ctx.summary = "Add the businesses and cities to search in this agent's settings."
-            return
         if not leads.configured():
             ctx.summary = "Needs GOOGLE_PLACES_API_KEY."
             return
+        targets = ctx.settings["targets"]
+        if not targets:
+            targets = leads.auto_targets()
+            ctx.log(f"No targets set, so it chose its own: {len(leads.AUTO_NICHES)} call-driven trades "
+                    f"across {len(leads.CANADA_CITIES)} Canadian cities.")
         retired = {learning.target_key(t) for t in ctx.settings.get("retired") or []}
         live = [t for t in targets if learning.target_key(t) not in retired]
         # Learned order: targets that bring positive replies and paying clients first, with
@@ -59,14 +60,16 @@ class Prospector(Agent):
                 ctx.log(f"Skipped '{line}': write it as type of business | city")
                 continue
             done_before = ctx.db.scalars(select(ProspectSearch).where(
-                func.lower(ProspectSearch.niche) == niche.lower(), func.lower(ProspectSearch.location) == location.lower(),
+                func.lower(ProspectSearch.niche) == niche.lower(),
+                or_(func.lower(ProspectSearch.location) == location.lower(),
+                    func.lower(ProspectSearch.base_location) == leads.canonical(location).lower()),
                 ProspectSearch.created_at >= recent)).first()
             if done_before:
                 continue
             s = leads.run_search(ctx.db, niche, location)
             ctx.stats["searches"] += 1
             ctx.stats["new_prospects"] += s.result_count
-            ctx.log(f"Searched {niche} in {location}: {s.result_count} new businesses")
+            ctx.log(f"Searched {niche} in {location}: {s.result_count} new businesses without a website")
             searched += 1
             ctx.commit()
         todo = ctx.db.scalars(select(Prospect).where(Prospect.enriched.is_(False), Prospect.website.is_not(None),

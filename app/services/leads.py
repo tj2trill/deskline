@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 
 from ..config import get_settings
 from ..models import Prospect, ProspectSearch
-from . import crawler, http
+from . import crawler, eventlog, http
 
 PLACES_URL = "https://places.googleapis.com/v1/places:searchText"
 FIELD_MASK = ",".join([
@@ -27,6 +27,80 @@ HIGH_VALUE = ["plumb", "hvac", "heating", "air condition", "roof", "electric", "
               "tow", "body shop", "landscap", "tree", "clean", "restoration", "water damage", "moving", "movers",
               "salon", "spa", "med spa", "clinic", "physio", "insurance", "real estate", "contractor", "remodel",
               "pool", "solar", "appliance repair", "septic", "paving", "concrete", "fence"]
+
+
+# "Canada" as the location searches each of these in turn: the 50 largest cities
+# plus every provincial and territorial capital. Google returns at most 60
+# businesses per query, so one national query would miss almost everyone.
+CANADA_CITIES = [
+    "Toronto, ON", "Montreal, QC", "Calgary, AB", "Ottawa, ON", "Edmonton, AB", "Winnipeg, MB", "Mississauga, ON",
+    "Vancouver, BC", "Brampton, ON", "Hamilton, ON", "Surrey, BC", "Quebec City, QC", "Halifax, NS", "Laval, QC",
+    "London, ON", "Markham, ON", "Vaughan, ON", "Gatineau, QC", "Saskatoon, SK", "Kitchener, ON", "Longueuil, QC",
+    "Burnaby, BC", "Windsor, ON", "Regina, SK", "Oakville, ON", "Richmond, BC", "Richmond Hill, ON",
+    "Burlington, ON", "Oshawa, ON", "Sherbrooke, QC", "Sudbury, ON", "Abbotsford, BC", "Levis, QC",
+    "Coquitlam, BC", "Barrie, ON", "Saguenay, QC", "Kelowna, BC", "Guelph, ON", "Trois-Rivieres, QC",
+    "Whitby, ON", "Cambridge, ON", "St. Catharines, ON", "Kingston, ON", "Waterloo, ON", "Thunder Bay, ON",
+    "Red Deer, AB", "Lethbridge, AB", "Nanaimo, BC", "Kamloops, BC", "Victoria, BC", "St. John's, NL",
+    "Moncton, NB", "Saint John, NB", "Fredericton, NB", "Charlottetown, PE", "Whitehorse, YT",
+    "Yellowknife, NT", "Iqaluit, NU",
+]
+# What the Prospector searches when you haven't given it targets: call-driven trades
+# where a missed call is a lost job, in every city above.
+AUTO_NICHES = [
+    "plumber", "electrician", "HVAC contractor", "roofer", "locksmith", "garage door repair", "pest control",
+    "dentist", "chiropractor", "physiotherapist", "veterinarian", "auto repair", "towing service", "landscaper",
+    "cleaning service", "water damage restoration", "moving company", "hair salon", "appliance repair",
+    "paving contractor",
+]
+
+
+def auto_targets() -> list[str]:
+    return [f"{n} | {c}" for n in AUTO_NICHES for c in CANADA_CITIES]
+
+
+_CANADA_WIDE = {"canada", "all of canada", "canada wide", "canada-wide"}
+
+
+PROVINCES = {"ON": "Ontario", "QC": "Quebec", "BC": "British Columbia", "AB": "Alberta", "MB": "Manitoba",
+             "SK": "Saskatchewan", "NS": "Nova Scotia", "NB": "New Brunswick", "NL": "Newfoundland and Labrador",
+             "PE": "Prince Edward Island", "YT": "Yukon", "NT": "Northwest Territories", "NU": "Nunavut"}
+
+
+def is_canada_wide(location: str) -> bool:
+    return location.strip().lower() in _CANADA_WIDE
+
+
+def canonical(location: str) -> str:
+    """"hamilton, on" -> "Hamilton, ON" when it is one of the known cities."""
+    loc = location.strip()
+    if is_canada_wide(loc):
+        return "Canada"
+    return next((c for c in CANADA_CITIES if c.lower() == loc.lower()), loc)
+
+
+def areas(base: str) -> list[tuple[str, list[str]]]:
+    """The widening steps for a typed location: (label, cities to search)."""
+    if base == "Canada":
+        return [("Canada", CANADA_CITIES)]
+    out = [(base, [base])]
+    code = base.rsplit(",", 1)[-1].strip().upper() if "," in base else ""
+    if code in PROVINCES:
+        prov = [c for c in CANADA_CITIES if c.endswith(f", {code}")]
+        cities = prov if base in prov else [base] + prov
+        if len(cities) > 1:
+            out.append((PROVINCES[code], cities))
+    out.append(("Canada", CANADA_CITIES if base in CANADA_CITIES else [base] + CANADA_CITIES))
+    return out
+
+
+def _unused_left(db: Session, niche: str, base: str) -> int:
+    """Callable prospects still marked new from earlier searches for this niche and place."""
+    ids = [s.id for s in db.scalars(select(ProspectSearch).where(ProspectSearch.niche.ilike(niche)))
+           if (s.base_location or s.location).lower() == base.lower()]
+    if not ids:
+        return 0
+    return len(db.scalars(select(Prospect.id).where(Prospect.search_id.in_(ids), Prospect.status == "new",
+                                                    Prospect.phone.is_not(None))).all())
 
 
 def configured() -> bool:
@@ -105,26 +179,78 @@ def score(p: Prospect) -> None:
     p.score_reasons = why
 
 
-def run_search(db: Session, niche: str, location: str) -> ProspectSearch:
-    search = ProspectSearch(niche=niche, location=location)
+def start_search(db: Session, niche: str, location: str) -> tuple[ProspectSearch, str | None]:
+    """Create the search. If every callable business from the last search for this
+    niche and place has been used, widen one step (city -> province -> Canada).
+    Returns the search and, when it widened, the area it widened from."""
+    base = canonical(location)
+    steps = areas(base)
+    prev = next((s for s in db.scalars(select(ProspectSearch).where(ProspectSearch.niche.ilike(niche))
+                                       .order_by(ProspectSearch.id.desc()))
+                 if (s.base_location or s.location).lower() == base.lower()), None)
+    tier, widened_from = 0, None
+    if prev is not None:
+        tier = min(prev.tier, len(steps) - 1)
+        if tier < len(steps) - 1 and _unused_left(db, niche, base) == 0:
+            widened_from, tier = steps[tier][0], tier + 1
+    label, cities = steps[tier]
+    search = ProspectSearch(niche=niche, location=label, base_location=base, tier=tier,
+                            cities_total=len(cities), cities_done=0)
     db.add(search)
     db.flush()
+    return search, widened_from
+
+
+def fill_search(db: Session, search: ProspectSearch, commit_each_city: bool = False) -> list[str]:
+    """Search each city for the niche and store businesses with no website.
+    Returns the cities whose search failed (Canada-wide only; a single-city
+    failure raises). Raises if every city failed."""
+    if not configured():
+        raise http.NotConfigured("Set GOOGLE_PLACES_API_KEY (Places API (New) enabled) or import a CSV of leads.")
+    cities = areas(search.base_location or search.location)[search.tier][1]
     seen = {pid for pid in db.scalars(select(Prospect.place_id).where(Prospect.place_id.is_not(None)))}
-    for pl in search_places(f"{niche} in {location}"):
-        if pl.get("businessStatus") not in (None, "OPERATIONAL"):
+    failed: list[str] = []
+    for city in cities:
+        try:
+            places = search_places(f"{search.niche} in {city}")
+        except http.ProviderError as e:
+            if len(cities) == 1:
+                raise
+            failed.append(city)
+            eventlog.record(db, "leads", f"Search for {search.niche} in {city} failed: {e}", level="warn")
+            search.cities_done += 1
+            if commit_each_city:
+                db.commit()
             continue
-        if pl.get("id") in seen:
-            continue
-        p = Prospect(search_id=search.id, place_id=pl.get("id"), niche=niche,
-                     name=(pl.get("displayName") or {}).get("text") or "Unknown",
-                     phone=pl.get("nationalPhoneNumber") or pl.get("internationalPhoneNumber"),
-                     website=pl.get("websiteUri"), address=pl.get("formattedAddress"),
-                     rating=pl.get("rating"), review_count=pl.get("userRatingCount"),
-                     maps_url=pl.get("googleMapsUri"), types=pl.get("types") or [],
-                     hours=(pl.get("regularOpeningHours") or {}).get("weekdayDescriptions") or [])
-        score(p)
-        db.add(p)
-        search.result_count += 1
+        for pl in places:
+            if pl.get("businessStatus") not in (None, "OPERATIONAL"):
+                continue
+            if pl.get("id") in seen:
+                continue
+            if pl.get("websiteUri"):  # prospecting targets businesses with no website
+                continue
+            p = Prospect(search_id=search.id, place_id=pl.get("id"), niche=search.niche,
+                         name=(pl.get("displayName") or {}).get("text") or "Unknown",
+                         phone=pl.get("nationalPhoneNumber") or pl.get("internationalPhoneNumber"),
+                         address=pl.get("formattedAddress"),
+                         rating=pl.get("rating"), review_count=pl.get("userRatingCount"),
+                         maps_url=pl.get("googleMapsUri"), types=pl.get("types") or [],
+                         hours=(pl.get("regularOpeningHours") or {}).get("weekdayDescriptions") or [])
+            score(p)
+            db.add(p)
+            seen.add(p.place_id)
+            search.result_count += 1
+        search.cities_done += 1
+        if commit_each_city:
+            db.commit()
+    if len(failed) == len(cities):
+        raise http.ProviderError(f"Google Places search failed for every city ({len(cities)}); see the event log.")
+    return failed
+
+
+def run_search(db: Session, niche: str, location: str) -> ProspectSearch:
+    search, _ = start_search(db, niche, location)
+    fill_search(db, search)
     return search
 
 

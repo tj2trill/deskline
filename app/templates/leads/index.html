@@ -7,10 +7,10 @@
 <div class="layout main-side">
   <div class="stack">
     <form class="surface" method="post" action="/leads/search">
-      <div class="surface-head"><div><h2>Search Google Maps</h2><div class="sub">Up to 60 businesses per search. Ones you already have are skipped.</div></div></div>
+      <div class="surface-head"><div><h2>Search Google Maps</h2><div class="sub">Finds businesses with no website. Enter a city, or Canada to search 58 cities coast to coast. Once every business from a search is used, searching again widens to the province, then Canada.</div></div></div>
       <div class="surface-body">
         {% if not places_ready %}<div class="callout mb" data-tone="bad">{{ ui.icon('alert') }}<span>Add GOOGLE_PLACES_API_KEY with "Places API (New)" enabled, or import a CSV instead.</span></div>{% endif %}
-        <div class="inline-form">{{ ui.field('niche', 'Type of business', placeholder='plumber, dentist, HVAC', required=True) }}{{ ui.field('location', 'Where', placeholder='Hamilton, ON', required=True) }}
+        <div class="inline-form">{{ ui.field('niche', 'Type of business', placeholder='plumber, dentist, HVAC', required=True) }}{{ ui.field('location', 'Where', placeholder='Hamilton, ON or Canada', required=True) }}
           <button class="btn primary" type="submit">{{ ui.icon('search') }}Find businesses</button></div>
       </div>
     </form>

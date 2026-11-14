@@ -6,9 +6,9 @@ from .team import (AccountManager, BillingGuardian, Closer, DailyBrief, DemoBuil
 TEAM = [
     Prospector(
         key="prospector", title="Prospector", icon="search", default_mode="auto", interval_minutes=1440,
-        role="Searches Google Maps for the businesses you target, scores them, and checks their websites. Searches the targets that bring paying clients first.",
+        role="Searches Google Maps for businesses with no website, in the trades and cities you set or, if you set none, ones it chooses across Canada. Searches the targets that bring paying clients first.",
         knobs=[
-            Knob("targets", "What to search", "lines", [], "One per line: type of business | city. For example: plumber | Hamilton, ON"),
+            Knob("targets", "What to search", "lines", [], "One per line: type of business | city. For example: plumber | Hamilton, ON. Leave empty and it chooses its own: call-driven trades across Canada."),
             Knob("searches_per_run", "Searches per day", "int", 2, "Each search returns up to 60 businesses."),
             Knob("enrich_top", "Websites to check per day", "int", 15, "Finds emails, chat widgets and online booking."),
             Knob("research_after_days", "Search the same place again after (days)", "int", 30),

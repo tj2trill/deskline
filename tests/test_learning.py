@@ -353,3 +353,35 @@ def test_upgrade_fills_defaults_for_new_flag_columns(net):
     db.add_missing_columns()
     with db.SessionLocal() as s:
         assert s.query(AgencySettings).first().agents_enabled is True
+
+
+def test_prospector_picks_its_own_targets_when_none_are_set(net, db):
+    from app.agents import runner
+    from app.main import bootstrap
+    from app.models import AgentConfig, ProspectSearch
+    from app.services import leads
+
+    bootstrap()
+    net.places = []
+    runner.ensure_configs(db)
+    db.commit()
+    assert db.query(AgentConfig).filter_by(key="prospector").one().settings.get("targets") in (None, [])
+
+    run = runner.run_agent("prospector", "manual")
+    assert run.status == "ok", run.summary
+    db.expire_all()
+    searches = db.query(ProspectSearch).all()
+    assert len(searches) == 2  # searches_per_run default
+    for s in searches:
+        assert s.niche in leads.AUTO_NICHES and s.location in leads.CANADA_CITIES
+    assert "chose its own" in json.dumps(run.log)
+
+    # a retired auto target is never searched
+    cfg = db.query(AgentConfig).filter_by(key="prospector").one()
+    cfg.settings = {"retired": [f"{n} | {c}" for n in leads.AUTO_NICHES for c in leads.CANADA_CITIES][2:]}
+    db.commit()
+    runner.run_agent("prospector", "manual")
+    db.expire_all()
+    allowed = {f"{leads.AUTO_NICHES[0]} | {c}" for c in leads.CANADA_CITIES[:2]}
+    for s in db.query(ProspectSearch).all()[2:]:
+        assert f"{s.niche} | {s.base_location}" in allowed

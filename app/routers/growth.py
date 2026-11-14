@@ -6,6 +6,7 @@ from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from .. import jobs
 from ..config import get_settings
 from ..db import get_db
 from ..models import Client, EmailDraft, Proposal, Prospect, ProspectSearch, Site, Suppression
@@ -33,15 +34,28 @@ def leads_home(request: Request, db: Session = Depends(get_db)):
 
 
 @router.post("/leads/search")
-def leads_search(request: Request, niche: str = Form(...), location: str = Form(...), db: Session = Depends(get_db)):
+def leads_search(request: Request, bg: BackgroundTasks, niche: str = Form(...), location: str = Form(...),
+                 db: Session = Depends(get_db)):
+    if not leads.configured():
+        flash(request, "Set GOOGLE_PLACES_API_KEY (Places API (New) enabled) or import a CSV of leads.", "error")
+        return RedirectResponse("/leads", status_code=303)
+    s, widened_from = leads.start_search(db, niche.strip(), location.strip())
+    widened = (f"Every business from {widened_from} has been used, so this search widened to {s.location}. "
+               if widened_from else "")
+    if s.cities_total > 1:
+        db.commit()
+        bg.add_task(jobs.fill_prospect_search, s.id)
+        flash(request, f"{widened}Searching {s.cities_total} cities in {s.location}. "
+                       "Results appear here as each city finishes.")
+        return RedirectResponse(f"/leads/{s.id}", status_code=303)
     try:
-        s = leads.run_search(db, niche.strip(), location.strip())
+        leads.fill_search(db, s)
         db.commit()
     except (http.ProviderError, http.NotConfigured) as e:
         db.rollback()
         flash(request, str(e), "error")
         return RedirectResponse("/leads", status_code=303)
-    flash(request, f"Found {s.result_count} new businesses.")
+    flash(request, f"{widened}Found {s.result_count} new businesses without a website.")
     return RedirectResponse(f"/leads/{s.id}", status_code=303)
 
 

@@ -5,7 +5,7 @@ import time
 
 from sqlalchemy import select
 
-from app.models import Call, Client, ChatSession, Contact, EmailDraft, Prospect, Site, User
+from app.models import ProspectSearch, Call, Client, ChatSession, Contact, EmailDraft, Prospect, Site, User
 from tests.test_voice_engine import _setup_live, make_client
 
 
@@ -74,31 +74,123 @@ PLACES = [
      "regularOpeningHours": {"weekdayDescriptions": ["Monday: 8:00 AM – 5:00 PM", "Saturday: Closed", "Sunday: Closed"]}},
     {"id": "p2", "displayName": {"text": "No Phone Co"}, "businessStatus": "OPERATIONAL", "types": ["store"]},
     {"id": "p3", "displayName": {"text": "Gone Plumbing"}, "businessStatus": "CLOSED_PERMANENTLY"},
+    {"id": "p4", "displayName": {"text": "Bayfront Drain Pros"}, "nationalPhoneNumber": "(905) 555-0144",
+     "rating": 4.5, "userRatingCount": 140, "businessStatus": "OPERATIONAL", "types": ["plumber"],
+     "formattedAddress": "9 King St, Hamilton",
+     "regularOpeningHours": {"weekdayDescriptions": ["Monday: 8:00 AM – 5:00 PM", "Saturday: Closed", "Sunday: Closed"]}},
 ]
 
 
-def test_lead_search_scoring_enrich_export(admin, db, net):
+def test_lead_search_finds_businesses_without_a_website(admin, db, net):
     net.places = PLACES
     r = admin.post("/leads/search", data={"niche": "plumber", "location": "Hamilton, ON"}, follow_redirects=False)
     sid = int(r.headers["location"].rsplit("/", 1)[1])
     ps = db.scalars(select(Prospect).where(Prospect.search_id == sid).order_by(Prospect.score.desc())).all()
-    assert [p.name for p in ps] == ["Rapid Rooter Plumbing", "No Phone Co"]  # closed business skipped
+    # has a website (p1) and closed (p3) are skipped
+    assert [p.name for p in ps] == ["Bayfront Drain Pros", "No Phone Co"]
+    assert all(p.website is None for p in ps)
     top = ps[0]
-    assert top.score > 50 and any("weekend" in r for r in top.score_reasons) and any("212 reviews" in r for r in top.score_reasons)
+    assert top.score > 50 and any("No website" in r for r in top.score_reasons) and any("weekend" in r for r in top.score_reasons)
     assert ps[1].score == 0
     sent = json.loads(net.of("places.googleapis.com")[0].content)
     assert sent["textQuery"] == "plumber in Hamilton, ON"
     assert "places.websiteUri" in net.of("places.googleapis.com")[0].headers["X-Goog-FieldMask"]
-    admin.post(f"/prospects/{top.id}/enrich")
-    db.expire_all()
-    top = db.get(Prospect, top.id)
-    assert top.email == "office@mapleleafplumbing.test" and "Calendly" in top.signals["booking_tools"]
     csv = admin.get(f"/leads/{sid}/export.csv").text
-    assert csv.splitlines()[0].startswith("name,score") and "Rapid Rooter" in csv
+    assert csv.splitlines()[0].startswith("name,score") and "Bayfront Drain Pros" in csv
     # re-running the same search doesn't duplicate
     admin.post("/leads/search", data={"niche": "plumber", "location": "Hamilton, ON"})
-    assert db.scalar(select(Prospect).where(Prospect.place_id == "p1").with_only_columns(Prospect.id).limit(5)) is not None
-    assert len(db.scalars(select(Prospect).where(Prospect.place_id == "p1")).all()) == 1
+    assert len(db.scalars(select(Prospect).where(Prospect.place_id == "p4")).all()) == 1
+    assert db.scalars(select(Prospect).where(Prospect.place_id == "p1")).first() is None
+
+
+def test_lead_search_canada_wide(admin, db, net):
+    from app.services import leads
+
+    net.places = PLACES
+    r = admin.post("/leads/search", data={"niche": "plumber", "location": "canada"}, follow_redirects=False)
+    sid = int(r.headers["location"].rsplit("/", 1)[1])
+    db.expire_all()
+    s = db.get(ProspectSearch, sid)
+    assert s.location == "Canada"
+    queries = [json.loads(q.content)["textQuery"] for q in net.of("places.googleapis.com")]
+    assert queries == [f"plumber in {c}" for c in leads.CANADA_CITIES]
+    for city in ("Toronto, ON", "Vancouver, BC", "Halifax, NS", "St. John's, NL", "Iqaluit, NU", "Whitehorse, YT"):
+        assert city in leads.CANADA_CITIES
+    # every city returned the same places: each business is stored once, websites skipped
+    ps = db.scalars(select(Prospect).where(Prospect.search_id == sid)).all()
+    assert sorted(p.name for p in ps) == ["Bayfront Drain Pros", "No Phone Co"]
+    assert s.result_count == 2
+    assert s.cities_total == s.cities_done == len(leads.CANADA_CITIES)
+    page = admin.get(f"/leads/{sid}").text
+    assert "Bayfront Drain Pros" in page and 'http-equiv="refresh"' not in page
+
+
+def test_canada_wide_search_shows_progress_while_running(admin, db):
+    s = ProspectSearch(niche="plumber", location="Canada", cities_total=58, cities_done=12)
+    db.add(s)
+    db.commit()
+    page = admin.get(f"/leads/{s.id}").text
+    assert "12 of 58 cities done" in page and 'http-equiv="refresh"' in page
+
+
+def _search(admin, location, niche="plumber"):
+    r = admin.post("/leads/search", data={"niche": niche, "location": location}, follow_redirects=False)
+    return int(r.headers["location"].rsplit("/", 1)[1])
+
+
+def test_search_widens_when_every_result_is_used(admin, db, net):
+    from app.services import leads
+
+    net.places = [PLACES[3]]  # one business with a phone and no website
+    sid = _search(admin, "Hamilton, ON")
+    db.expire_all()
+    assert db.get(ProspectSearch, sid).location == "Hamilton, ON"
+
+    # results still unused: searching again stays in the city
+    sid = _search(admin, "hamilton, on")
+    db.expire_all()
+    assert db.get(ProspectSearch, sid).location == "Hamilton, ON"
+
+    # every result used: next search widens to the province
+    for p in db.scalars(select(Prospect)).all():
+        p.status = "contacted"
+    db.add(Prospect(name="No Phone Co", niche="plumber", status="new"))  # can't be called, doesn't block widening
+    db.commit()
+    net.requests.clear()
+    sid = _search(admin, "Hamilton, ON")
+    db.expire_all()
+    s = db.get(ProspectSearch, sid)
+    ontario = [c for c in leads.CANADA_CITIES if c.endswith(", ON")]
+    assert s.location == "Ontario" and s.cities_total == len(ontario) == s.cities_done
+    queries = [json.loads(q.content)["textQuery"] for q in net.of("places.googleapis.com")]
+    assert queries == [f"plumber in {c}" for c in ontario]
+
+    # used again: widens to Canada, and stays there
+    for p in db.scalars(select(Prospect)).all():
+        p.status = "lost"
+    db.commit()
+    sid = _search(admin, "Hamilton, ON")
+    db.expire_all()
+    assert db.get(ProspectSearch, sid).location == "Canada"
+    sid = _search(admin, "Hamilton, ON")
+    db.expire_all()
+    assert db.get(ProspectSearch, sid).location == "Canada"
+
+    # a different niche starts in the city again
+    sid = _search(admin, "Hamilton, ON", niche="roofer")
+    db.expire_all()
+    assert db.get(ProspectSearch, sid).location == "Hamilton, ON"
+
+
+def test_enrich_imported_prospect_with_website(admin, db, net):
+    p = Prospect(name="Rapid Rooter Plumbing", niche="plumber", phone="(905) 555-0101",
+                 website="https://mapleleafplumbing.test", review_count=212)
+    db.add(p)
+    db.commit()
+    admin.post(f"/prospects/{p.id}/enrich")
+    db.expire_all()
+    p = db.get(Prospect, p.id)
+    assert p.email == "office@mapleleafplumbing.test" and "Calendly" in p.signals["booking_tools"]
 
 
 def test_cold_email_compliance(admin, app_client, db, net):

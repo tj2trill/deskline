@@ -35,6 +35,26 @@ def sync_agent(db: Session, client: Client, agent: Agent) -> str:
     return "Synced to Vapi."
 
 
+def fill_prospect_search(search_id: int) -> None:
+    """Canada-wide lead search: one city at a time, saved after each so results appear as they come in."""
+    from .models import ProspectSearch
+    from .services import leads
+
+    with session_scope() as db:
+        search = db.get(ProspectSearch, search_id)
+        if not search:
+            return
+        try:
+            failed = leads.fill_search(db, search, commit_each_city=True)
+        except (http.ProviderError, http.NotConfigured) as e:
+            search.cities_done = search.cities_total  # stop the progress display
+            eventlog.record(db, "leads", f"Search for {search.niche} in {search.location} stopped: {e}", level="warn")
+            return
+        if failed:
+            eventlog.record(db, "leads", f"{search.niche} in {search.location}: {len(failed)} of "
+                            f"{search.cities_total} cities failed ({', '.join(failed)})", level="warn")
+
+
 def build_and_sync(client_id: int, website: str | None = None) -> None:
     with session_scope() as db:
         client = db.get(Client, client_id)

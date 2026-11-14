@@ -361,6 +361,13 @@ class ProspectSearch(Base):
     location: Mapped[str] = mapped_column(String(160))
     source: Mapped[str] = mapped_column(String(20), default="google_places")
     result_count: Mapped[int] = mapped_column(Integer, default=0)
+    # Progress of a multi-city (Canada-wide) search; results are saved after each city.
+    cities_total: Mapped[int] = mapped_column(Integer, default=1)
+    cities_done: Mapped[int] = mapped_column(Integer, default=1)
+    # What was typed (e.g. "Hamilton, ON") and how far the search has widened from it:
+    # 0 = the city, then its province, then Canada. Blank on older rows (= location).
+    base_location: Mapped[str] = mapped_column(String(160), default="")
+    tier: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 

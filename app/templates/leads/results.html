@@ -2,9 +2,12 @@
 {% import "_ui.html" as ui with context %}
 {% block title %}{{ search.niche|capitalize }} in {{ search.location }} – {{ brand.brand_name }}{% endblock %}
 {% block content %}
+{% set searching = search.cities_done < search.cities_total %}
+{% if searching %}<meta http-equiv="refresh" content="10">{% endif %}
 <div class="page-head">
   <div><a class="back" href="/leads">{{ ui.icon('back') }}Lead finder</a>
-    <h1>{{ search.niche|capitalize }} in {{ search.location }}</h1><p class="lede">{{ prospects|length }} businesses, most likely to need a receptionist first.</p></div>
+    <h1>{{ search.niche|capitalize }} in {{ search.location }}</h1><p class="lede">{{ prospects|length }} businesses, most likely to need a receptionist first.</p>
+    {% if searching %}<div class="callout mt" data-tone="info">{{ ui.icon('search') }}<span>Searching: {{ search.cities_done }} of {{ search.cities_total }} cities done. This page refreshes every 10 seconds.</span></div>{% endif %}</div>
   <div class="cluster">
     <form method="post" action="/leads/{{ search.id }}/enrich"><input type="hidden" name="limit" value="10"><button class="btn" type="submit" title="Finds emails, chat widgets and online booking">{{ ui.icon('globe') }}Check top 10 websites</button></form>
     <a class="btn" href="/leads/{{ search.id }}/export.csv" download>{{ ui.icon('download') }}Export CSV</a>
