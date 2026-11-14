@@ -307,3 +307,32 @@ def test_weekly_report(admin, db):
     mail = [m for m in messaging.OUTBOX if m["to"] == "owner@maple.test"][-1]
     assert "1 calls answered" in mail["subject"]
     assert not reports.send_weekly(db, c)  # not again within 6 days
+
+
+def test_quebec_is_left_out_of_prospecting(admin, db, net):
+    from app.services import leads
+
+    assert not [c for c in leads.CANADA_CITIES if c.endswith(", QC")] and "QC" not in leads.PROVINCES
+    net.places = PLACES + [
+        {"id": "pq", "displayName": {"text": "Plomberie Rue Hamilton"}, "nationalPhoneNumber": "(514) 555-0101",
+         "formattedAddress": "12 Rue Hamilton, Montréal, Québec H2X 1A1, Canada", "businessStatus": "OPERATIONAL"}]
+    r = admin.post("/leads/search", data={"niche": "plumber", "location": "Hamilton, ON"}, follow_redirects=False)
+    sid = int(r.headers["location"].rsplit("/", 1)[1])
+    names = [p.name for p in db.scalars(select(Prospect).where(Prospect.search_id == sid))]
+    assert "Plomberie Rue Hamilton" not in names and "Bayfront Drain Pros" in names
+
+
+def test_deleting_a_client_takes_its_public_site_down(admin, db, app_client):
+    from app.models import Client, Site
+
+    c = Client(name="Gone Plumbing", slug="gone-plumbing")
+    db.add(c)
+    db.flush()
+    db.add(Site(client_id=c.id, slug="gone-plumbing", content={"headline": "x"}))
+    db.commit()
+    assert app_client.get("/s/gone-plumbing").status_code == 200
+    r = admin.post(f"/clients/{c.id}/delete", data={"confirm": "Gone Plumbing"}, follow_redirects=False)
+    assert r.status_code == 303
+    db.expire_all()
+    assert db.query(Site).filter_by(slug="gone-plumbing").count() == 0
+    assert app_client.get("/s/gone-plumbing").status_code == 404

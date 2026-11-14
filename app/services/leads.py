@@ -29,16 +29,17 @@ HIGH_VALUE = ["plumb", "hvac", "heating", "air condition", "roof", "electric", "
               "pool", "solar", "appliance repair", "septic", "paving", "concrete", "fence"]
 
 
-# "Canada" as the location searches each of these in turn: the 50 largest cities
-# plus every provincial and territorial capital. Google returns at most 60
-# businesses per query, so one national query would miss almost everyone.
+# "Canada" as the location searches each of these in turn: the largest cities plus
+# every provincial and territorial capital, outside Quebec (see EXCLUDED_ADDRESS).
+# Google returns at most 60 businesses per query, so one national query would miss
+# almost everyone.
 CANADA_CITIES = [
-    "Toronto, ON", "Montreal, QC", "Calgary, AB", "Ottawa, ON", "Edmonton, AB", "Winnipeg, MB", "Mississauga, ON",
-    "Vancouver, BC", "Brampton, ON", "Hamilton, ON", "Surrey, BC", "Quebec City, QC", "Halifax, NS", "Laval, QC",
-    "London, ON", "Markham, ON", "Vaughan, ON", "Gatineau, QC", "Saskatoon, SK", "Kitchener, ON", "Longueuil, QC",
+    "Toronto, ON", "Calgary, AB", "Ottawa, ON", "Edmonton, AB", "Winnipeg, MB", "Mississauga, ON",
+    "Vancouver, BC", "Brampton, ON", "Hamilton, ON", "Surrey, BC", "Halifax, NS",
+    "London, ON", "Markham, ON", "Vaughan, ON", "Saskatoon, SK", "Kitchener, ON",
     "Burnaby, BC", "Windsor, ON", "Regina, SK", "Oakville, ON", "Richmond, BC", "Richmond Hill, ON",
-    "Burlington, ON", "Oshawa, ON", "Sherbrooke, QC", "Sudbury, ON", "Abbotsford, BC", "Levis, QC",
-    "Coquitlam, BC", "Barrie, ON", "Saguenay, QC", "Kelowna, BC", "Guelph, ON", "Trois-Rivieres, QC",
+    "Burlington, ON", "Oshawa, ON", "Sudbury, ON", "Abbotsford, BC",
+    "Coquitlam, BC", "Barrie, ON", "Kelowna, BC", "Guelph, ON",
     "Whitby, ON", "Cambridge, ON", "St. Catharines, ON", "Kingston, ON", "Waterloo, ON", "Thunder Bay, ON",
     "Red Deer, AB", "Lethbridge, AB", "Nanaimo, BC", "Kamloops, BC", "Victoria, BC", "St. John's, NL",
     "Moncton, NB", "Saint John, NB", "Fredericton, NB", "Charlottetown, PE", "Whitehorse, YT",
@@ -61,9 +62,18 @@ def auto_targets() -> list[str]:
 _CANADA_WIDE = {"canada", "all of canada", "canada wide", "canada-wide"}
 
 
-PROVINCES = {"ON": "Ontario", "QC": "Quebec", "BC": "British Columbia", "AB": "Alberta", "MB": "Manitoba",
+PROVINCES = {"ON": "Ontario", "BC": "British Columbia", "AB": "Alberta", "MB": "Manitoba",
              "SK": "Saskatchewan", "NS": "Nova Scotia", "NB": "New Brunswick", "NL": "Newfoundland and Labrador",
              "PE": "Prince Edward Island", "YT": "Yukon", "NT": "Northwest Territories", "NU": "Nunavut"}
+
+
+# Quebec is left out of prospecting. A search near the border (Ottawa) or a street named after a Quebec
+# city can still return a Quebec business, so results are filtered by address too.
+EXCLUDED_ADDRESS = re.compile(r",\s*(QC|Qu[e\u00e9]bec)\b", re.I)
+
+
+def excluded(address: str | None) -> bool:
+    return bool(address and EXCLUDED_ADDRESS.search(address))
 
 
 def is_canada_wide(location: str) -> bool:
@@ -228,6 +238,8 @@ def fill_search(db: Session, search: ProspectSearch, commit_each_city: bool = Fa
             if pl.get("id") in seen:
                 continue
             if pl.get("websiteUri"):  # prospecting targets businesses with no website
+                continue
+            if excluded(pl.get("formattedAddress")):
                 continue
             p = Prospect(search_id=search.id, place_id=pl.get("id"), niche=search.niche,
                          name=(pl.get("displayName") or {}).get("text") or "Unknown",
