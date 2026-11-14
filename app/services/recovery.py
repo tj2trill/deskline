@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import re
 from datetime import datetime, time, timedelta, timezone
+from email.utils import parsedate_to_datetime
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -364,19 +365,84 @@ def counts(db: Session, client: Client) -> dict:
 
 # ------------------------------------------------------------------ scheduler
 
+LIVE_STATUSES = ("queued", "ringing", "in-progress")
+RING_ANSWERED_SECS = 20    # ring mode, webhooks never ran: a completed call this long is guessed answered
+
+
+def _started(call: dict, fallback: datetime) -> datetime:
+    try:
+        return parsedate_to_datetime(call.get("start_time") or call.get("date_created")).astimezone(timezone.utc)
+    except (TypeError, ValueError):
+        return fallback
+
+
+def reconcile(db: Session, client: Client, now: datetime | None = None, lookback_hours: int = 24) -> int:
+    """Safety net for the webhooks. Asks Twilio which calls actually reached the recovery number and texts back
+    any missed call we never handled: the server was down or deploying (no webhook at all), or the webhook
+    recorded the call but the background text-back died. Missed calls older than 30 minutes wait for the send
+    window, so nobody gets a 3am "sorry we missed you"; a later sweep picks them up. Returns calls recovered."""
+    from . import twilio
+
+    num = recovery_number(client)
+    if not num or not twilio.configured():
+        return 0
+    now = now or utcnow()
+    since = now - timedelta(hours=lookback_hours)
+    try:
+        calls = twilio.list_calls(num.number, since)
+    except (http.ProviderError, http.NotConfigured) as e:
+        eventlog.record(db, "recovery", f"Sweep couldn't read Twilio calls: {e}", client_id=client.id, level="warn")
+        return 0
+    known = {rc.call_sid: rc for rc in db.scalars(select(RecoveryCall).where(
+        RecoveryCall.client_id == client.id, RecoveryCall.created_at >= since - timedelta(days=1)))}
+    fixed = 0
+    for c in calls:
+        sid = c.get("sid")
+        if not sid or c.get("status") in LIVE_STATUSES or (c.get("direction") or "inbound") != "inbound":
+            continue
+        started = _started(c, now)
+        if started < since or (now - started > timedelta(minutes=30) and not in_window(client, now)):
+            continue
+        rc = known.get(sid)
+        if rc is None:  # no webhook ever reached us for this call
+            secs = int(c.get("duration") or 0)
+            answered = client.missed_call_mode == "ring" and c.get("status") == "completed" and secs >= RING_ANSWERED_SECS
+            rc = RecoveryCall(client_id=client.id, call_sid=sid, from_number=c.get("from"), to_number=c.get("to"),
+                              mode=client.missed_call_mode, answered=answered, dial_status="reconciled",
+                              created_at=started)
+            db.add(rc)
+            db.flush()
+            known[sid] = rc
+            why = "never reached the webhook"
+        elif (rc.answered or rc.thread_id or rc.dial_status is None or now - started < timedelta(minutes=2)
+              or not messaging.normalize_phone(rc.from_number)):
+            continue  # handled, ring-mode dial unresolved, text-back may still be running, or hidden number
+        else:
+            why = "was recorded but never texted back"
+        if rc.answered:
+            continue
+        if start_missed_call(db, client, rc.from_number, origin="missed", call_sid=sid):
+            fixed += 1
+            eventlog.record(db, "recovery", f"Call {sid} from {rc.from_number} {why}; recovered by sweep",
+                            client_id=client.id, level="warn")
+    return fixed
+
+
 def tick(db: Session, now: datetime | None = None) -> dict:
     """Every minute: nudge silent missed-call threads, send due quote follow-ups and invoice reminders.
     Each client runs in its own savepoint so one client's bad data can't block the others."""
     from . import sequences, textback
 
     now = now or utcnow()
-    done = {"nudges": 0, "quotes": 0, "invoices": 0}
+    done = {"nudges": 0, "quotes": 0, "invoices": 0, "reconciled": 0}
     for client in db.scalars(select(Client).where(Client.recovery_enabled.is_(True), Client.status.in_(("active", "demo")))):
         try:
             with db.begin_nested():
                 done["nudges"] += textback.nudge_due(db, client, now)
                 done["quotes"] += sequences.run_quotes(db, client, now)
                 done["invoices"] += sequences.run_invoices(db, client, now)
+                if now.minute % 5 == 0:
+                    done["reconciled"] += reconcile(db, client, now)
         except Exception as e:
             eventlog.record(db, "recovery", f"Recovery run failed: {e}", client_id=client.id, level="error")
     return done

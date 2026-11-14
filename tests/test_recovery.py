@@ -342,7 +342,12 @@ def test_quote_maybe_is_not_an_acceptance(admin, app_client, db, net, no_llm):
 
 
 def recovery_noon(c, dt):
-    return dt.astimezone(TZ).replace(hour=12).astimezone(timezone.utc) + timedelta(minutes=1)
+    """The first local 12:01 at or after `dt`, so the touch is due and inside the send window whatever time the
+    suite runs (noon on dt's own day is before dt when the quote was created in the afternoon)."""
+    noon = dt.astimezone(TZ).replace(hour=12, minute=0, second=0, microsecond=0) + timedelta(minutes=1)
+    if noon < dt:
+        noon += timedelta(days=1)
+    return noon.astimezone(timezone.utc)
 
 
 def test_won_without_any_followup_is_not_claimed(admin, db, no_llm):
@@ -522,3 +527,79 @@ def test_simulator_runs_without_twilio(admin, db, monkeypatch, no_llm):
     admin.post(f"/clients/{cid}/recovery/simulate/text", data={"phone": "519 555 0177", "body": "Need a quote for a hot tub hookup"})
     bodies = [m["body"] for m in messaging.OUTBOX if m["channel"] == "sms"]
     assert "Sorry we missed your call" in bodies[0] and "address" in bodies[1]
+
+
+def test_sweep_recovers_calls_the_webhook_never_saw(admin, db, net, no_llm):
+    from email.utils import format_datetime
+
+    from app.services import recovery
+
+    cid = setup(admin, db)
+    c = db.get(Client, cid)
+    now = datetime.now(timezone.utc)
+
+    def stamp(m):
+        return format_datetime(now - timedelta(minutes=m))
+
+    db.add(RecoveryCall(client_id=cid, call_sid="CAseen", from_number=CUSTOMER, to_number=REC, mode="forward",
+                        dial_status="forwarded", created_at=now - timedelta(minutes=1)))
+    db.commit()
+    net.twilio_calls = [
+        {"sid": "CAseen", "from": CUSTOMER, "to": REC, "status": "completed", "duration": "5",
+         "direction": "inbound", "start_time": stamp(1)},
+        {"sid": "CAlost", "from": "+15195550166", "to": REC, "status": "completed", "duration": "5",
+         "direction": "inbound", "start_time": stamp(4)},
+        {"sid": "CAlive", "from": "+15195550155", "to": REC, "status": "in-progress", "duration": "0",
+         "direction": "inbound", "start_time": stamp(0)},
+    ]
+    assert recovery.reconcile(db, c, now) == 1
+    db.commit()
+    assert "Sorry we missed your call" in texts_to(net, "+15195550166")[0]
+    assert not texts_to(net, CUSTOMER)          # recorded under 2 minutes ago: the webhook's own text may be running
+    assert not texts_to(net, "+15195550155")    # still on the line
+    assert recovery.reconcile(db, c, now) == 0  # idempotent
+    rc = db.scalars(select(RecoveryCall).where(RecoveryCall.call_sid == "CAlost")).one()
+    assert rc.dial_status == "reconciled" and rc.thread_id
+
+
+def test_sweep_retries_a_recorded_call_whose_text_back_died(admin, db, net, no_llm):
+    from email.utils import format_datetime
+
+    from app.services import recovery
+
+    cid = setup(admin, db)
+    c = db.get(Client, cid)
+    now = datetime.now(timezone.utc)
+    db.add(RecoveryCall(client_id=cid, call_sid="CAcrash", from_number=CUSTOMER, to_number=REC, mode="forward",
+                        dial_status="forwarded", created_at=now - timedelta(minutes=6)))
+    db.commit()
+    net.twilio_calls = [{"sid": "CAcrash", "from": CUSTOMER, "to": REC, "status": "completed", "duration": "5",
+                         "direction": "inbound", "start_time": format_datetime(now - timedelta(minutes=6))}]
+    assert recovery.reconcile(db, c, now) == 1
+    db.commit()
+    assert len(texts_to(net, CUSTOMER)) == 1
+    assert recovery.reconcile(db, c, now) == 0
+
+
+def test_sweep_waits_for_send_window_and_guesses_ring_answers(admin, db, net, no_llm):
+    from email.utils import format_datetime
+
+    from app.services import recovery
+
+    cid = setup(admin, db, mode="ring", transfer_number="+15195550188")
+    c = db.get(Client, cid)
+    from app.services.scheduling import tz_of
+    tz = tz_of(c)
+    night = datetime.now(tz).replace(hour=3, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
+    noon = night + timedelta(hours=9)
+    calls = [{"sid": "CAnight", "from": "+15195550166", "to": REC, "status": "completed", "duration": "4",
+              "direction": "inbound", "start_time": format_datetime(night - timedelta(hours=1))},
+             {"sid": "CAtalk", "from": "+15195550133", "to": REC, "status": "completed", "duration": "95",
+              "direction": "inbound", "start_time": format_datetime(night - timedelta(hours=1))}]
+    net.twilio_calls = calls
+    assert recovery.reconcile(db, c, night) == 0   # 3am: hold the text
+    assert not texts_to(net, "+15195550166")
+    assert recovery.reconcile(db, c, noon) == 1    # in the window: send it
+    db.commit()
+    assert texts_to(net, "+15195550166")
+    assert not texts_to(net, "+15195550133")       # 95s completed ring-mode call: guessed answered

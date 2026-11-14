@@ -8,6 +8,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import hmac
+from datetime import datetime, timedelta
 from xml.sax.saxutils import escape, quoteattr
 
 from ..config import get_settings
@@ -118,3 +119,26 @@ def connect_number(e164: str) -> dict:
         r = c.post(f"{API}/Accounts/{sid}/IncomingPhoneNumbers/{num_sid}.json", data=hook_urls())
         http.check("Twilio", r)
     return {"sid": num_sid, "number": e164}
+
+
+# ------------------------------------------------------------------ call log (reconcile sweep)
+
+def list_calls(to_number: str, since: datetime, max_pages: int = 5) -> list[dict]:
+    """Calls Twilio received on one of our numbers since `since`. The StartTime filter is date-only, so we ask
+    from the day before and callers re-check exact times; that holds whether Twilio treats it as > or >=."""
+    c, sid = _client()
+    out: list[dict] = []
+    url = f"{API}/Accounts/{sid}/Calls.json"
+    params: dict | None = {"To": to_number, "PageSize": "200",
+                           "StartTime>": (since - timedelta(days=1)).strftime("%Y-%m-%d")}
+    with c:
+        for _ in range(max_pages):
+            r = c.get(url, params=params)
+            http.check("Twilio", r)
+            data = r.json()
+            out += data.get("calls") or []
+            nxt = data.get("next_page_uri")
+            if not nxt:
+                break
+            url, params = "https://api.twilio.com" + nxt, None
+    return out
