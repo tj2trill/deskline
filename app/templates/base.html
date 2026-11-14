@@ -8,7 +8,7 @@
 <style>:root{--brand:{{ brand.primary_color or '#2b50c8' }}}</style>
 <meta name="theme-color" content="{{ brand.primary_color or '#2b50c8' }}">
 <script src="/static/app.js?v=2" defer></script>
-</head>
+{% include "_pwa.html" %}</head>
 <body>
 {% include "_icons.html" %}
 {% set path = request.url.path %}
