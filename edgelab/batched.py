@@ -339,6 +339,12 @@ def b_dual_momentum(k, d, short, long):
     return k.sign0((c / k.shift(c, short) - 1) - (c / k.shift(c, long) - 1) * short / long)
 
 
+def b_jev_proxy(k, d, z_open, z_exit):
+    vol = k.rstd(d.c / k.shift(d.c, 1) - 1, 30)
+    z = (d.c / k.shift(d.c, 20) - 1) / (vol * math.sqrt(20))
+    return k.state(z >= z_open, z <= -z_open, exit_=k.xp.abs(z) < z_exit)
+
+
 # Map reference param names -> batched arg names (Python can't take `k` twice).
 _RENAME = {"k": "k_"}
 
@@ -350,6 +356,7 @@ BFAMILIES = {
     "stoch_revert": b_stoch_revert, "keltner_breakout": b_keltner_breakout, "streak": b_streak,
     "near_high": b_near_high, "volume_spike": b_volume_spike, "day_of_week": b_day_of_week,
     "vol_squeeze": b_vol_squeeze, "inside_bar": b_inside_bar, "dual_momentum": b_dual_momentum,
+    "jev_proxy": b_jev_proxy,
 }
 
 

@@ -206,6 +206,18 @@ def fam_dual_momentum(df, short, long):
     return _sign((c / c.shift(short) - 1) - (c / c.shift(long) - 1) * short / long)
 
 
+def fam_jev_proxy(df, z_open, z_exit):
+    """Proxy for TradeRank's Jev (TypeSafe System One), built from what TradeRank published:
+    its expected 7-day move tracks the trailing 20-day return (corr 0.67), with moves scaled to
+    the asset's own typical move (std of the last 30 daily returns). Opens only on a strong
+    signal (the live 0.80-confidence gate), closes when the signal fades (the 0.55 rule).
+    Not modelled: the 5% / 80%-range stop and the one-open-per-cycle limit."""
+    c = df["close"]
+    vol = c.pct_change().rolling(30, min_periods=30).std()
+    z = (c / c.shift(20) - 1) / (vol * np.sqrt(20))
+    return _state(z >= z_open, z <= -z_open, exit_=z.abs() < z_exit)
+
+
 FAMILIES: dict[str, tuple] = {
     "sma_cross": (fam_sma_cross, {"fast": [5, 10, 20, 50], "slow": [20, 50, 100, 200]}),
     "ema_cross": (fam_ema_cross, {"fast": [5, 12, 20, 50], "slow": [26, 50, 100, 200]}),
@@ -229,6 +241,7 @@ FAMILIES: dict[str, tuple] = {
     "vol_squeeze": (fam_vol_squeeze, {"n": [60, 120], "hold": [5, 10, 20]}),
     "inside_bar": (fam_inside_bar, {"hold": [1, 3, 5, 10]}),
     "dual_momentum": (fam_dual_momentum, {"short": [10, 20], "long": [60, 120, 250]}),
+    "jev_proxy": (fam_jev_proxy, {"z_open": [0.75, 1.0, 1.5], "z_exit": [0.25, 0.5]}),
 }
 
 DIRECTIONS = ("long", "short", "both")

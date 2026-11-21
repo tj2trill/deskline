@@ -18,11 +18,11 @@ some can be held out entirely.
 
 ## What "every edge" means
 
-22 signal families × parameter grids × direction (long / short / both) × regime filter
-(none / above-or-below 200 SMA / low vol / high vol) = **2,724 strategies**. Families:
+23 signal families × parameter grids × direction (long / short / both) × regime filter
+(none / above-or-below 200 SMA / low vol / high vol) = **2,796 strategies**. Families:
 SMA/EMA crosses, price vs SMA, MA slope, time-series momentum, dual momentum, short-term reversal,
 Donchian breakout, Bollinger reversion & breakout, Keltner breakout, RSI reversion & momentum,
-stochastic reversion, z-score reversion, MACD, up/down streaks (fade or follow), near 52-week
+stochastic reversion, z-score reversion, MACD, `jev_proxy` (a copy of TradeRank's Jev decision model built from its published rules), up/down streaks (fade or follow), near 52-week
 high/low, volume spikes, day-of-week, volatility squeeze, inside bars.
 Add one by writing a function in `signals.py` and registering it in `FAMILIES`.
 
