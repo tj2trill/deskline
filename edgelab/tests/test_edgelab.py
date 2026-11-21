@@ -86,3 +86,32 @@ def test_planted_edge_is_found_and_only_the_right_kind():
     fams = {k["id"].split("(")[0] for k in res["keepers"]}
     assert fams, "a real planted edge should survive"
     assert fams <= {"reversal", "rsi_revert"}, fams
+
+
+def test_batched_engine_matches_reference_for_every_strategy():
+    from edgelab import batched as bx
+    segs = [(data.random_walk(520, seed=40), 300), (data.planted_edge(600, seed=41), 300),
+            (data.random_walk(560, seed=42, vol=0.04), 250)]
+    hb = bx.HostBatch(segs, n_charts=3)  # different lengths -> exercises right-padding
+    ops = bx.Ops("cpu")
+    d = hb.to_device(ops, slice(0, hb.B))
+    for s in generate():
+        pb = bx.positions(ops, d, s)
+        for j, (df, _) in enumerate(segs):
+            n = len(df) - 1  # last bar's position is never held inside the chart
+            np.testing.assert_array_equal(pb[:n, j], s.positions(df)[:n], err_msg=s.id)
+
+
+@pytest.mark.parametrize("mem_gb", [0.0, 0.002])  # 0.002 GB forces many streamed column chunks
+def test_batched_stage2_matches_reference(mem_gb):
+    from edgelab import pipeline as pl
+    u = {f"MR{i}": data.planted_edge(1500, seed=70 + i, phi=-0.2) for i in range(4)}
+    cfg = _fast_cfg(charts=6, perms=20, window=200, workers=2, mem_gb=mem_gb)
+    cfg.bars_per_year = 365.0
+    split = pl.make_split(u, cfg)
+    charts = pl.sample_charts(u, split, cfg)
+    ids = ["rsi_revert(lo=30,n=2)|both|none", "sma_cross(fast=10,slow=50)|long|trend",
+           "keltner_breakout(m=1.5,n=20)|short|lowvol", "day_of_week(day=2)|both|highvol"]
+    ref = pl.stage2(u, split, charts, Config(**{**cfg.__dict__, "device": "pandas"}), ids, log=SILENT)
+    new = pl.stage2(u, split, charts, cfg, ids, log=SILENT)
+    pd.testing.assert_frame_equal(ref.set_index("id"), new.set_index("id"), check_exact=False, rtol=1e-9)

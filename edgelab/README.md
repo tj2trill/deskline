@@ -61,5 +61,28 @@ for liquid futures, or `--window 252` for stock daily bars.
   subtract funding yourself.
 - Daily bars are the tested path. Intraday works, but fixed indicator lookbacks (e.g. 200)
   then mean something different.
-- CPU only: about 15 s for stage 1 and about 1 min for stage 2 on 4 cores with 6 instruments.
-  It scales with `--workers` (default: all cores).
+- Shorts and filters aside, run time is about 15 s total on 4 CPU cores for the demo (6 instruments).
+
+## GPU (optional)
+
+Stage 2 (thousands of real + shuffled charts per strategy) uses a batched engine that runs on
+NumPy or, if available, on an NVIDIA GPU through CuPy. Stage 1 stays on the CPU: it only has a
+handful of instruments per strategy, too few to fill a GPU.
+
+```bash
+pip install cupy-cuda12x          # RTX 50xx (Blackwell, sm_120) needs CUDA 12.8+ and driver >= 570
+python -m edgelab.gpucheck        # 1) GPU == CPU for every strategy  2) speed table
+python -m edgelab --csv-dir data/ --device auto   # default
+```
+
+- `--device auto` (default): if CuPy sees a GPU and the batch is at least `--gpu-min-cells`
+  (bars × charts, default 500k), it times two of the real strategies on both devices and picks
+  whichever finishes sooner. The CPU path runs `min(workers, #strategies)` strategies in parallel,
+  while the GPU runs them one after another, so the GPU has to beat all your cores, not just one.
+- `--device gpu` / `--device cpu` force a device. `--device pandas` uses the slow reference
+  implementation (for checking).
+- `--mem-gb`: memory budget for stage 2. The default is 70% of free VRAM, or 1 GB per CPU worker.
+  Charts are split into column chunks to fit it, so larger `--perms` / `--charts` stream instead of
+  running out of memory.
+- Everything is float64. GeForce cards run FP64 math at 1/64 speed, but this workload is limited by
+  memory bandwidth. float32 would make the rolling sums too imprecise for exact crossover comparisons.

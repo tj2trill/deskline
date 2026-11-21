@@ -20,6 +20,7 @@ import hashlib
 import json
 import math
 import os
+import time
 from concurrent.futures import ProcessPoolExecutor
 from dataclasses import asdict, dataclass, field
 from multiprocessing import get_context
@@ -29,6 +30,7 @@ import numpy as np
 import pandas as pd
 
 from . import backtest as bt
+from . import batched as bx
 from .data import bars_per_year, permute_bars
 from .signals import Strategy, generate
 
@@ -61,6 +63,10 @@ class Config:
     workers: int = field(default_factory=lambda: os.cpu_count() or 1)
     bars_per_year: float | None = None
     families: list[str] | None = None
+    # stage-2 compute: auto = GPU if CuPy sees one and the batch is big enough, else batched CPU
+    device: str = "auto"            # auto | gpu | cpu | pandas (slow reference implementation)
+    gpu_min_cells: int = 500_000    # bars x charts below which the GPU is not worth it
+    mem_gb: float = 0.0             # stage-2 memory budget per process; 0 = 70% of free VRAM / 1 GB per CPU worker
 
     @property
     def cost(self) -> float:
@@ -123,6 +129,8 @@ _G: dict = {}
 
 def _init(universe, split, charts, cfg):
     _G.update(universe=universe, split=split, charts=charts, cfg=cfg)
+    _G.pop("ops", None)  # never inherit a parent's device handles across fork
+    _G.pop("dev_cache", None)
 
 
 def _discover_one(strat: Strategy) -> dict:
@@ -145,9 +153,7 @@ def _discover_one(strat: Strategy) -> dict:
 
 
 def _chart_frame(name, a, b):
-    df = _G["universe"][name]
-    lo = max(a - WARMUP, 0)
-    return df.iloc[lo:b], a - lo
+    return _chart_frame_from(_G["universe"], name, a, b)
 
 
 def _chart_returns(strat: Strategy, seg: pd.DataFrame, start: int, cost: float):
@@ -186,6 +192,152 @@ def _gauntlet_one(sid: str) -> dict:
             "oos_frac_profitable": float(np.mean([x > 0 for x in chart_rets])) if chart_rets else 0.0,
             "noise_sharpe_mean": float(null.mean()), "noise_sharpe_p95": float(np.quantile(null, 0.95)),
             "noise_p": p}
+
+
+# ---------------------------------------------------------------- batched stage 2
+
+def build_batch(universe, charts, cfg: Config) -> bx.HostBatch:
+    """Real windows + every shuffled replicate, padded into one (T, B) batch, built once.
+    Uses the same per-(rep, chart) seeds as the reference path, so the random charts are identical."""
+    real = [_chart_frame_from(universe, n, a, b) for n, a, b in charts]
+    segs = list(real)
+    for rep in range(cfg.perms):
+        for j, (seg, start) in enumerate(real):
+            rng = np.random.default_rng([cfg.seed, 1000 + rep, j])
+            segs.append((permute_bars(seg, rng, keep_first=start), start))
+    return bx.HostBatch(segs, n_charts=len(charts))
+
+
+def _chart_frame_from(universe, name, a, b):
+    df = universe[name]
+    lo = max(a - WARMUP, 0)
+    return df.iloc[lo:b], a - lo
+
+
+def _plan_chunks(hb: bx.HostBatch, device: str, cfg: Config) -> tuple[list[slice], bool]:
+    """Split columns so one strategy's temporaries fit the memory budget; keep the data resident
+    on the device when it fits alongside them."""
+    if cfg.mem_gb > 0:
+        budget = cfg.mem_gb * 2**30
+    elif device == "gpu":
+        import cupy
+        free, _ = cupy.cuda.runtime.memGetInfo()
+        budget = 0.7 * free
+    else:
+        budget = 2**30
+    resident = hb.T * hb.B * bx.RESIDENT_BYTES_PER_CELL
+    per_col_work = hb.T * 8 * bx.PEAK_ARRAYS
+    keep = resident < 0.5 * budget
+    avail = budget - (resident if keep else 0)
+    max_cols = max(int(avail // (per_col_work + (0 if keep else hb.T * bx.RESIDENT_BYTES_PER_CELL))), hb.n_charts)
+    return hb.column_chunks(max_cols), keep
+
+
+def _calibrate(hb: bx.HostBatch, ids: list[str], cfg: Config, log) -> str:
+    """Time a couple of the real strategies on one GPU vs one CPU core, on the first chunk of
+    the real batch, then compare projected wall time: the CPU path runs min(workers, #strategies)
+    strategies in parallel, the GPU path runs them one after another."""
+    import cupy
+    sample = [Strategy.from_id(i) for i in ids[:2]]
+    per = {}
+    for dev in ("gpu", "cpu"):
+        ops = bx.Ops(dev)
+        chunks, _ = _plan_chunks(hb, dev, cfg)
+        d = hb.to_device(ops, chunks[0])
+        bx.positions(ops, d, sample[0])  # warm-up: NVRTC compile, memory pool
+        cupy.cuda.Device().synchronize()
+        t = time.perf_counter()
+        for s in sample:
+            net, mask, _, _ = bx.net_returns(ops, d, bx.positions(ops, d, s), cfg.cost)
+            bx.group_sharpes(ops, net, mask, hb.n_charts, cfg.bars_per_year)
+        cupy.cuda.Device().synchronize()
+        per[dev] = (time.perf_counter() - t) / len(sample) * len(chunks)
+        del d
+    parallel = max(1, min(cfg.workers, len(ids)))
+    est_gpu = per["gpu"] * len(ids)
+    est_cpu = per["cpu"] * len(ids) / parallel
+    choice = "gpu" if est_gpu < est_cpu else "cpu"
+    log(f"stage 2: auto-calibration: GPU {per['gpu'] * 1e3:.0f} ms/strategy vs CPU {per['cpu'] * 1e3:.0f} ms "
+        f"x {parallel} parallel -> est. {est_gpu:.0f}s vs {est_cpu:.0f}s, using {choice}")
+    return choice
+
+
+def _gauntlet_batched(sid: str) -> dict:
+    cfg: Config = _G["cfg"]
+    hb: bx.HostBatch = _G["hb"]
+    if "ops" not in _G:
+        _G["ops"] = bx.Ops(_G["device"])
+        _G["dev_cache"] = {}
+    ops = _G["ops"]
+    strat = Strategy.from_id(sid)
+    C = hb.n_charts
+    srs = []
+    for i, cols in enumerate(_G["chunks"]):
+        d = _G["dev_cache"].get(i) or hb.to_device(ops, cols)
+        if _G["keep_resident"]:
+            _G["dev_cache"][i] = d
+        pos = bx.positions(ops, d, strat)
+        net, mask, entries, in_mkt = bx.net_returns(ops, d, pos, cfg.cost)
+        srs.append(bx.group_sharpes(ops, net, mask, C, cfg.bars_per_year))
+        if i == 0:  # group 0 = the real charts
+            real_net = ops.to_host(net[:, :C])
+            ent = ops.to_host(entries[:C])
+            inm = ops.to_host(in_mkt[:C])
+        del pos, net, mask, entries, in_mkt
+    sr = np.concatenate(srs)
+    real_r, chart_rets, expo = [], [], []
+    for j in range(C):
+        st, en = int(hb.start[j]), int(hb.end[j])
+        r = real_net[st:en, j]
+        real_r.append(r)
+        expo.append(inm[j] / max(en - st, 1))
+        if ent[j] > 0:
+            chart_rets.append(float(np.prod(1 + r) - 1))
+    trades = int(ent.sum())
+    pooled = bt.stats(np.concatenate(real_r), trades, float(np.mean(expo)), cfg.bars_per_year)
+    null = sr[1:]
+    p = float((1 + np.sum(null >= sr[0])) / (len(null) + 1))
+    return {"id": sid, **pooled.as_dict("oos_"),
+            "oos_charts_traded": len(chart_rets),
+            "oos_frac_profitable": float(np.mean([x > 0 for x in chart_rets])) if chart_rets else 0.0,
+            "noise_sharpe_mean": float(null.mean()), "noise_sharpe_p95": float(np.quantile(null, 0.95)),
+            "noise_p": p}
+
+
+def stage2(universe, split, charts, cfg: Config, ids: list[str], log=print) -> pd.DataFrame:
+    if cfg.device == "pandas":
+        pool = _pool(universe, split, charts, cfg)
+        try:
+            return pd.DataFrame(_map(pool, _gauntlet_one, ids))
+        finally:
+            if pool is not None:
+                pool.shutdown()
+    t0 = time.time()
+    hb = build_batch(universe, charts, cfg)
+    device = bx.choose_device(cfg.device, hb.T * hb.B, cfg.gpu_min_cells)
+    if cfg.device == "auto" and device == "gpu":
+        device = _calibrate(hb, ids, cfg, log)
+    chunks, keep = _plan_chunks(hb, device, cfg)
+    log(f"stage 2: batch {hb.T} bars x {hb.B} charts built in {time.time() - t0:.1f}s -> device={device}, "
+        f"{len(chunks)} chunk(s){', resident' if keep else ', streamed'}")
+    extra = {"hb": hb, "device": device, "chunks": chunks, "keep_resident": keep}
+    if device == "gpu":  # one GPU: run in this process, data stays resident across strategies
+        _G.clear()
+        _init(universe, split, charts, cfg)
+        _G.update(extra)
+        try:
+            return pd.DataFrame([_gauntlet_batched(i) for i in ids])
+        finally:
+            _G.clear()
+    _G.clear()
+    _G.update(extra)  # set before fork so workers share the batch copy-on-write
+    pool = _pool(universe, split, charts, cfg)
+    try:
+        return pd.DataFrame(_map(pool, _gauntlet_batched, ids))
+    finally:
+        if pool is not None:
+            pool.shutdown()
+        _G.clear()
 
 
 def _pool(universe, split, charts, cfg):
@@ -237,7 +389,9 @@ def run(universe: dict[str, pd.DataFrame], cfg: Config, out_dir: str | Path | No
         if len(forwarded):
             log(f"stage 2: {len(charts)} random unseen charts x ({cfg.perms} shuffled versions each) "
                 f"for {len(forwarded)} strategies ...")
-            g = pd.DataFrame(_map(pool, _gauntlet_one, forwarded["id"].tolist()))
+            pool.shutdown() if pool is not None else None
+            pool = None
+            g = stage2(universe, split, charts, cfg, forwarded["id"].tolist(), log)
             g = forwarded[["id", "is_sharpe", "is_dsr", "is_trades", "is_cagr", "is_max_dd"]].merge(g, on="id")
             g["noise_fdr_pass"] = bt.benjamini_hochberg(g["noise_p"].tolist(), cfg.fdr_q)
             g["reject_reason"] = g.apply(lambda r: _stage2_reason(r, cfg), axis=1)
