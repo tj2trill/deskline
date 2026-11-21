@@ -20,6 +20,8 @@ custom functions, client billing). It also fixes the things that make their mode
 
 ---
 
+> Also in this repo: [`edgelab/`](edgelab/README.md), a standalone trading-edge search with an out-of-sample random-chart gauntlet (unrelated to Deskline).
+
 ## Quick start (local, 5 minutes)
 
 ```bash
