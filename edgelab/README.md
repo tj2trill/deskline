@@ -61,7 +61,7 @@ for liquid futures, or `--window 252` for stock daily bars.
   subtract funding yourself.
 - Daily bars are the tested path. Intraday works, but fixed indicator lookbacks (e.g. 200)
   then mean something different.
-- Shorts and filters aside, run time is about 15 s total on 4 CPU cores for the demo (6 instruments).
+- Run time: about 15 s total for the demo (6 instruments) on 4 CPU cores.
 
 ## GPU (optional)
 
